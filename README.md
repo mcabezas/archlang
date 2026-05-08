@@ -1,8 +1,8 @@
 # The ArchLang Programming Language
 
 ArchLang is a programming language for defining solution architectures that
-compiles into a deterministic REST API, serving architecture knowledge to
-humans and AI agents alike.
+compiles into a deterministic API, serving architecture knowledge to humans
+and AI agents through multiple communication protocols.
 
 <p align="center">
   <img src="doc/archie.jpg" alt="Archie — the ArchLang mascot" width="250">
@@ -19,8 +19,8 @@ decisions, they need deterministic, structured facts — not documents open to
 interpretation.
 
 ArchLang compiles `.arch` definition files into an Architecture Knowledge
-Engine: a REST API that returns exact, repeatable responses. No AI in the
-data path. No hallucinations. Same question, same answer, every time.
+Engine that returns exact, repeatable responses. No AI in the data path.
+No hallucinations. Same question, same answer, every time.
 
 ## The Language
 
