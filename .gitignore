@@ -1,5 +1,5 @@
 # Binaries
-archlang
+/archlang.exe
 *.exe
 *.dll
 *.so

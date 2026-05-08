@@ -1,0 +1,20 @@
+component redis
+component postgres
+component api-gateway
+
+service checkout
+service payments
+service users
+service ledger
+service notifications
+service inventory
+
+collaboration api-gateway -> checkout
+collaboration api-gateway -> users
+collaboration checkout -> payments
+collaboration checkout -> inventory
+collaboration payments -> ledger
+collaboration payments -> notifications
+collaboration payments -> postgres
+collaboration notifications -> users
+collaboration users -> redis
