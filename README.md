@@ -1,19 +1,28 @@
-# ArchLang
+# The ArchLang Programming Language
 
-A programming language for defining solution architectures. Compile `.arch` files into a deterministic REST API that serves architecture knowledge to humans and AI agents alike.
+ArchLang is a programming language for defining solution architectures that
+compiles into a deterministic REST API, serving architecture knowledge to
+humans and AI agents alike.
 
-## Why ArchLang?
+<p align="center">
+  <img src="doc/archie.jpg" alt="Archie — the ArchLang mascot" width="250">
+</p>
 
-Architecture knowledge is often scattered across wikis, diagrams, and tribal knowledge. When AI agents need to understand your system to make implementation decisions, they need **deterministic, structured facts** — not documents that can be misinterpreted.
+Unless otherwise noted, the ArchLang source files are distributed under the
+MIT license found in the LICENSE file.
 
-ArchLang solves this with two layers:
+## About
 
-1. **Architecture Knowledge Engine** — A compiled REST API that returns exact, repeatable responses. No AI, no interpretation, no hallucinations.
-2. **Architecture Knowledge Agent** — An optional AI layer that wraps the engine, translating natural language questions into API calls. The agent may paraphrase, but the data is always exact.
+Architecture knowledge is often scattered across wikis, diagrams, and tribal
+knowledge. When AI agents need to understand your system to make implementation
+decisions, they need deterministic, structured facts — not documents open to
+interpretation.
 
-## Language
+ArchLang compiles `.arch` definition files into an Architecture Knowledge
+Engine: a REST API that returns exact, repeatable responses. No AI in the
+data path. No hallucinations. Same question, same answer, every time.
 
-Define your architecture in `.arch` files:
+## The Language
 
 ```
 component payments
@@ -26,35 +35,62 @@ collaboration payments -> users
 collaboration payments -> ledger
 ```
 
+The compiler validates all definitions at build time. Referencing an
+undeclared component is a compile error, not a runtime surprise.
+
+## Download and Install
+
+### Binary Distributions
+
+Official binary distributions will be available at a future date.
+
+### Install From Source
+
+```bash
+git clone https://github.com/mcabezas/archlang.git
+cd archlang
+go build -o archlang .
+```
+
 ## Usage
 
 ```bash
-# Compile and start the API server
+# Compile .arch files and start the API server
 archlang .
 
 # Compile to a standalone binary
 archlang build .
 ```
 
-## API
+### API Endpoints
 
 ```
-GET /components                          # List all components
-GET /components/{name}                   # Component details
-GET /components/{name}/upstreams         # Who depends on this component
-GET /components/{name}/downstreams       # What this component depends on
+GET /components                    → List all components
+GET /components/{name}             → Component details
+GET /components/{name}/upstreams   → Who depends on this component
+GET /components/{name}/downstreams → What this component depends on
 ```
-
-Every endpoint returns deterministic JSON. Same input, same output, every time.
 
 ## Agents
 
-The `agents/` directory contains official agent implementations that wrap the ArchLang engine. These agents provide natural language interfaces while guaranteeing that all data comes from the compiled architecture definition.
+The [`agents/`](agents/) directory contains official agent implementations
+that wrap the Architecture Knowledge Engine. These agents provide natural
+language interfaces while guaranteeing that all data comes from the compiled
+architecture definition.
 
-## Status
+Planned agents:
 
-Under active development.
+- **MCP Server** — Model Context Protocol server for AI coding assistants
+- **CLI Agent** — Natural language queries from the terminal
+- **Slack Bot** — Architecture queries in Slack channels
 
-## License
+## Contributing
 
-MIT
+ArchLang is under active development. Contributions are welcome.
+
+To contribute, please open an issue or pull request on this repository.
+
+## Reporting Issues
+
+The issue tracker is for bug reports and feature proposals only.
+For questions about ArchLang, please use the Discussions tab.
