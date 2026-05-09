@@ -1,1 +1,1 @@
-component delivery-db
+component delivery-db { infra: db }

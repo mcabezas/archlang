@@ -39,6 +39,12 @@ func (l *Lexer) NextToken() token.Token {
 		}
 	case '.':
 		tok = l.newToken(token.DOT)
+	case ',':
+		tok = l.newToken(token.COMMA)
+	case ':':
+		tok = l.newToken(token.COLON)
+	case '=':
+		tok = l.newToken(token.ASSIGN)
 	case '{':
 		tok = l.newToken(token.LBRACE)
 	case '}':
@@ -53,6 +59,11 @@ func (l *Lexer) NextToken() token.Token {
 		if isLetter(l.ch) {
 			tok.Literal = l.readIdentifier()
 			tok.Type = token.LookupIdent(tok.Literal)
+			return tok
+		}
+		if isDigit(l.ch) {
+			tok.Literal = l.readNumber()
+			tok.Type = token.NUMBER
 			return tok
 		}
 		tok.Type = token.ILLEGAL
@@ -114,6 +125,14 @@ func (l *Lexer) newToken(tokenType token.TokenType) token.Token {
 		Line:    l.line,
 		Column:  l.column,
 	}
+}
+
+func (l *Lexer) readNumber() string {
+	position := l.position
+	for isDigit(l.ch) {
+		l.readChar()
+	}
+	return l.input[position:l.position]
 }
 
 func isLetter(ch byte) bool {

@@ -1,7 +1,7 @@
 import gateway as gw
 
-component ios-app
-component android-app
+component ios-app { frontend }
+component android-app { frontend }
 
-collaboration ios-app -> gw.api
-collaboration android-app -> gw.api
+collaboration ios-app -> gw.load-balancer
+collaboration android-app -> gw.load-balancer

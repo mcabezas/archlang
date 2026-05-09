@@ -25,20 +25,33 @@ func (a *Architecture) TokenLiteral() string {
 }
 
 type ComponentStatement struct {
-	Token token.Token
-	Name  string
+	Token    token.Token
+	Name     string
+	Frontend bool
+	Infra    string // "db", "cache", "bus", "lb", or "" for generic
 }
 
 func (cs *ComponentStatement) statementNode()       {}
 func (cs *ComponentStatement) TokenLiteral() string { return cs.Token.Literal }
 
 type ServiceStatement struct {
-	Token token.Token
-	Name  string
+	Token    token.Token
+	Name     string
+	Frontend bool
 }
 
 func (ss *ServiceStatement) statementNode()       {}
 func (ss *ServiceStatement) TokenLiteral() string { return ss.Token.Literal }
+
+type AttributeStatement struct {
+	Token     token.Token
+	Component string // component name
+	Attribute string // "tier"
+	Value     string // "0", "1", etc.
+}
+
+func (as *AttributeStatement) statementNode()       {}
+func (as *AttributeStatement) TokenLiteral() string { return as.Token.Literal }
 
 type ImportStatement struct {
 	Token   token.Token
@@ -48,6 +61,13 @@ type ImportStatement struct {
 
 func (is *ImportStatement) statementNode()       {}
 func (is *ImportStatement) TokenLiteral() string { return is.Token.Literal }
+
+type DomainStatement struct {
+	Token token.Token
+}
+
+func (ds *DomainStatement) statementNode()       {}
+func (ds *DomainStatement) TokenLiteral() string { return ds.Token.Literal }
 
 type ComponentRef struct {
 	Package string // empty for local references

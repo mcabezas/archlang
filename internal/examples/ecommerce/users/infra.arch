@@ -1,1 +1,1 @@
-component users-db
+component users-db { infra: db }

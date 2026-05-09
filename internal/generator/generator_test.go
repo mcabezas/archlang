@@ -3,17 +3,10 @@ package generator
 import (
 	"strings"
 	"testing"
-
-	"github.com/mcabezas/archlang/sdk"
 )
 
 func TestGenerate(t *testing.T) {
-	arch, err := sdk.Compile("../examples/ecommerce")
-	if err != nil {
-		t.Fatalf("unexpected error: %s", err)
-	}
-
-	output, err := Generate(arch, "architecture")
+	output, err := Generate("../examples/ecommerce", "architecture")
 	if err != nil {
 		t.Fatalf("unexpected error: %s", err)
 	}
@@ -28,41 +21,52 @@ func TestGenerate(t *testing.T) {
 		t.Error("missing package declaration")
 	}
 
-	// Check some components are declared as vars with qualified names
+	if !strings.Contains(code, `"github.com/mcabezas/archlang/graph"`) {
+		t.Error("missing graph import")
+	}
+
+	// Check some components are declared as vars
 	for _, name := range []string{
 		"OrdersOrderManagement",
 		"PaymentsPaymentProcessing",
 		"UsersAuth",
-		"GatewayApi",
+		"GatewayLoadBalancer",
 		"DeliveryTracking",
 		"NotificationsEmail",
 	} {
-		if !strings.Contains(code, name+" = &Component{") {
+		if !strings.Contains(code, name) {
 			t.Errorf("missing variable declaration for %s", name)
 		}
 	}
 
-	// Check Package field is set
-	if !strings.Contains(code, `Package: "orders"`) {
-		t.Error("missing Package field for orders")
+	// Check domain uses NewDomain constructor
+	if !strings.Contains(code, "graph.NewDomain(") {
+		t.Error("missing NewDomain constructor")
 	}
 
-	// Check kinds
-	if !strings.Contains(code, "KindComponent") {
-		t.Error("missing KindComponent usage")
-	}
-	if !strings.Contains(code, "KindService") {
-		t.Error("missing KindService usage")
+	// Check service uses NewService constructor
+	if !strings.Contains(code, "graph.NewService(") {
+		t.Error("missing NewService constructor")
 	}
 
-	// Check init wiring
-	if !strings.Contains(code, "func init()") {
-		t.Error("missing init function")
+	// Check infra uses NewInfra constructor
+	if !strings.Contains(code, "graph.NewInfra(") {
+		t.Error("missing NewInfra constructor")
 	}
 
-	// Cross-package wiring: orders.order-management -> payments.payment-processing
-	if !strings.Contains(code, "OrdersOrderManagement.Downstreams") {
-		t.Error("missing downstream wiring for OrdersOrderManagement")
+	// Check graph construction
+	if !strings.Contains(code, "graph.NewGraph()") {
+		t.Error("missing graph construction")
+	}
+
+	// Check edge wiring
+	if !strings.Contains(code, "g.AddDownstream(") {
+		t.Error("missing downstream wiring")
+	}
+
+	// Check registration
+	if !strings.Contains(code, "g.Register(") {
+		t.Error("missing node registration")
 	}
 }
 
@@ -75,6 +79,7 @@ func TestToGoName(t *testing.T) {
 		{"gateway.api-gateway", "GatewayApiGateway"},
 		{"orders.order-management", "OrdersOrderManagement"},
 		{"notifications.push", "NotificationsPush"},
+		{"payments/stripe", "PaymentsStripe"},
 	}
 
 	for _, tt := range tests {

@@ -6,7 +6,6 @@ import (
 	"path/filepath"
 
 	"github.com/mcabezas/archlang/internal/generator"
-	"github.com/mcabezas/archlang/sdk"
 )
 
 func main() {
@@ -40,15 +39,9 @@ func main() {
 		}
 	}
 
-	arch, err := sdk.Compile(sourceDir)
+	code, err := generator.Generate(sourceDir, packageName)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error: %s\n", err)
-		os.Exit(1)
-	}
-
-	code, err := generator.Generate(arch, packageName)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "error generating code: %s\n", err)
 		os.Exit(1)
 	}
 

@@ -43,6 +43,8 @@ func (p *Parser) Parse() *ast.Architecture {
 
 func (p *Parser) parseStatement() ast.Statement {
 	switch p.curToken.Type {
+	case token.DOMAIN:
+		return &ast.DomainStatement{Token: p.curToken}
 	case token.IMPORT:
 		return p.parseImportStatement()
 	case token.COMPONENT:
@@ -51,6 +53,14 @@ func (p *Parser) parseStatement() ast.Statement {
 		return p.parseServiceStatement()
 	case token.COLLABORATION:
 		return p.parseCollaborationStatement()
+	case token.IDENT:
+		// name.attr = value (attribute assignment)
+		if p.peekTokenIs(token.DOT) {
+			return p.parseAttributeStatement()
+		}
+		p.addError("unexpected identifier %q at line %d, column %d",
+			p.curToken.Literal, p.curToken.Line, p.curToken.Column)
+		return nil
 	default:
 		p.addError("unexpected token %q at line %d, column %d",
 			p.curToken.Literal, p.curToken.Line, p.curToken.Column)
@@ -66,6 +76,12 @@ func (p *Parser) parseComponentStatement() *ast.ComponentStatement {
 	}
 
 	stmt.Name = p.curToken.Literal
+
+	if p.peekTokenIs(token.LBRACE) {
+		p.nextToken() // consume {
+		p.parseComponentAttributes(&stmt.Frontend, &stmt.Infra)
+	}
+
 	return stmt
 }
 
@@ -77,7 +93,43 @@ func (p *Parser) parseServiceStatement() *ast.ServiceStatement {
 	}
 
 	stmt.Name = p.curToken.Literal
+
+	if p.peekTokenIs(token.LBRACE) {
+		p.nextToken() // consume {
+		p.parseComponentAttributes(&stmt.Frontend, nil)
+	}
+
 	return stmt
+}
+
+func (p *Parser) parseComponentAttributes(frontend *bool, infra *string) {
+	for !p.peekTokenIs(token.RBRACE) && !p.peekTokenIs(token.EOF) {
+		p.nextToken()
+		switch p.curToken.Type {
+		case token.COMMA:
+			continue
+		case token.FRONTEND:
+			*frontend = true
+		case token.INFRA:
+			if infra == nil {
+				p.addError("infra type not allowed on services at line %d", p.curToken.Line)
+				return
+			}
+			if !p.expectPeek(token.COLON) {
+				return
+			}
+			if !p.expectPeek(token.IDENT) {
+				return
+			}
+			*infra = p.curToken.Literal
+		default:
+			p.addError("unexpected token %q in attribute block at line %d", p.curToken.Literal, p.curToken.Line)
+			return
+		}
+	}
+	if !p.expectPeek(token.RBRACE) {
+		return
+	}
 }
 
 func (p *Parser) parseImportStatement() *ast.ImportStatement {
@@ -116,6 +168,33 @@ func (p *Parser) parseCollaborationStatement() *ast.CollaborationStatement {
 		return nil
 	}
 	stmt.Target = p.parseComponentRef()
+
+	return stmt
+}
+
+func (p *Parser) parseAttributeStatement() *ast.AttributeStatement {
+	stmt := &ast.AttributeStatement{Token: p.curToken}
+	stmt.Component = p.curToken.Literal
+
+	p.nextToken() // consume dot
+
+	// Next token is the attribute name
+	p.nextToken()
+	if p.curToken.Type == token.FRONTEND {
+		stmt.Attribute = "frontend"
+	} else if p.curToken.Type == token.IDENT {
+		stmt.Attribute = p.curToken.Literal
+	} else {
+		p.addError("expected attribute name, got %s at line %d", p.curToken.Type, p.curToken.Line)
+		return nil
+	}
+
+	if !p.expectPeek(token.ASSIGN) {
+		return nil
+	}
+
+	p.nextToken() // move to value
+	stmt.Value = p.curToken.Literal
 
 	return stmt
 }

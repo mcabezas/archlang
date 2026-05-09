@@ -1,3 +1,5 @@
+domain
+
 import users
 
 service payment-processing
