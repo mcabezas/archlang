@@ -1,0 +1,12 @@
+import users
+import payments
+import delivery
+import notifications as noti
+
+service order-management
+
+collaboration order-management -> users.auth
+collaboration order-management -> payments.payment-processing
+collaboration order-management -> delivery.dispatch
+collaboration order-management -> noti.email
+collaboration order-management -> noti.push

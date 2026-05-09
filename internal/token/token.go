@@ -13,9 +13,12 @@ const (
 	COMPONENT     = "COMPONENT"
 	SERVICE       = "SERVICE"
 	COLLABORATION = "COLLABORATION"
+	IMPORT        = "IMPORT"
+	AS            = "AS"
 
 	// Operators
 	ARROW = "->"
+	DOT   = "."
 
 	// Delimiters
 	LBRACE = "{"
@@ -33,6 +36,8 @@ var keywords = map[string]TokenType{
 	"component":     COMPONENT,
 	"service":       SERVICE,
 	"collaboration": COLLABORATION,
+	"import":        IMPORT,
+	"as":            AS,
 }
 
 func LookupIdent(ident string) TokenType {

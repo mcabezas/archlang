@@ -40,10 +40,24 @@ type ServiceStatement struct {
 func (ss *ServiceStatement) statementNode()       {}
 func (ss *ServiceStatement) TokenLiteral() string { return ss.Token.Literal }
 
+type ImportStatement struct {
+	Token   token.Token
+	Package string
+	Alias   string
+}
+
+func (is *ImportStatement) statementNode()       {}
+func (is *ImportStatement) TokenLiteral() string { return is.Token.Literal }
+
+type ComponentRef struct {
+	Package string // empty for local references
+	Name    string
+}
+
 type CollaborationStatement struct {
 	Token  token.Token
-	Source string
-	Target string
+	Source ComponentRef
+	Target ComponentRef
 }
 
 func (cs *CollaborationStatement) statementNode()       {}

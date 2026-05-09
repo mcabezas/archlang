@@ -1,0 +1,9 @@
+import orders
+import payments
+
+component load-balancer
+component api
+
+collaboration load-balancer -> api
+collaboration api -> orders.order-management
+collaboration api -> payments.payment-processing

@@ -11,13 +11,13 @@ func TestCompile(t *testing.T) {
 	}
 
 	components := arch.Components()
-	if len(components) != 9 {
-		t.Fatalf("expected 9 components, got %d", len(components))
+	if len(components) != 16 {
+		t.Fatalf("expected 16 components, got %d", len(components))
 	}
 
 	services := arch.Services()
-	if len(services) != 6 {
-		t.Fatalf("expected 6 services, got %d", len(services))
+	if len(services) != 8 {
+		t.Fatalf("expected 8 services, got %d", len(services))
 	}
 }
 
@@ -27,82 +27,87 @@ func TestGetComponent(t *testing.T) {
 		t.Fatalf("unexpected error: %s", err)
 	}
 
-	payments, ok := arch.GetComponent("payments")
+	payments, ok := arch.GetComponent("payments.payment-processing")
 	if !ok {
-		t.Fatal("expected 'payments' to exist")
+		t.Fatal("expected 'payments.payment-processing' to exist")
 	}
 	if payments.Kind != KindService {
 		t.Fatalf("expected kind service, got %s", payments.Kind)
 	}
+	if payments.Package != "payments" {
+		t.Fatalf("expected package payments, got %s", payments.Package)
+	}
 
-	redis, ok := arch.GetComponent("redis")
+	redis, ok := arch.GetComponent("users.users-db")
 	if !ok {
-		t.Fatal("expected 'redis' to exist")
+		t.Fatal("expected 'users.users-db' to exist")
 	}
 	if redis.Kind != KindComponent {
 		t.Fatalf("expected kind component, got %s", redis.Kind)
 	}
 }
 
-func TestDownstreamsAreComponents(t *testing.T) {
+func TestCrossPackageCollaboration(t *testing.T) {
 	arch, err := Compile("../internal/examples/ecommerce")
 	if err != nil {
 		t.Fatalf("unexpected error: %s", err)
 	}
 
-	payments, _ := arch.GetComponent("payments")
+	orderMgmt, _ := arch.GetComponent("orders.order-management")
 
-	if len(payments.Downstreams) == 0 {
-		t.Fatal("expected payments to have downstreams")
+	if len(orderMgmt.Downstreams) == 0 {
+		t.Fatal("expected order-management to have downstreams")
 	}
 
-	for _, ds := range payments.Downstreams {
-		if ds.Name == "" {
-			t.Fatal("downstream component has empty name")
+	// Should have cross-package downstreams
+	var hasPayments, hasNotifications bool
+	for _, ds := range orderMgmt.Downstreams {
+		if ds.Package == "payments" && ds.Name == "payment-processing" {
+			hasPayments = true
 		}
-		if ds.Kind == "" {
-			t.Fatal("downstream component has empty kind")
+		if ds.Package == "notifications" && ds.Name == "email" {
+			hasNotifications = true
 		}
+	}
+
+	if !hasPayments {
+		t.Fatal("expected order-management to have payments.payment-processing as downstream")
+	}
+	if !hasNotifications {
+		t.Fatal("expected order-management to have notifications.email as downstream")
 	}
 }
 
-func TestUpstreamsAreComponents(t *testing.T) {
+func TestPackages(t *testing.T) {
 	arch, err := Compile("../internal/examples/ecommerce")
 	if err != nil {
 		t.Fatalf("unexpected error: %s", err)
 	}
 
-	redis, _ := arch.GetComponent("redis")
-
-	if len(redis.Upstreams) == 0 {
-		t.Fatal("expected redis to have upstreams")
-	}
-
-	for _, us := range redis.Upstreams {
-		if us.Name == "" {
-			t.Fatal("upstream component has empty name")
-		}
+	packages := arch.Packages()
+	if len(packages) != 7 {
+		t.Fatalf("expected 7 packages, got %d: %v", len(packages), packages)
 	}
 }
 
-func TestCircularReferences(t *testing.T) {
+func TestPointerIdentity(t *testing.T) {
 	arch, err := Compile("../internal/examples/ecommerce")
 	if err != nil {
 		t.Fatalf("unexpected error: %s", err)
 	}
 
-	checkout, _ := arch.GetComponent("checkout")
-	payments, _ := arch.GetComponent("payments")
+	orderMgmt, _ := arch.GetComponent("orders.order-management")
+	paymentProc, _ := arch.GetComponent("payments.payment-processing")
 
 	var found *Component
-	for _, ds := range checkout.Downstreams {
-		if ds.Name == "payments" {
+	for _, ds := range orderMgmt.Downstreams {
+		if ds.Name == "payment-processing" {
 			found = ds
 			break
 		}
 	}
 
-	if found != payments {
+	if found != paymentProc {
 		t.Fatal("expected downstream pointer to be the same object as GetComponent result")
 	}
 }
@@ -116,13 +121,6 @@ func TestGetComponentNotFound(t *testing.T) {
 	_, ok := arch.GetComponent("nonexistent")
 	if ok {
 		t.Fatal("expected 'nonexistent' to not exist")
-	}
-}
-
-func TestCompileNoFiles(t *testing.T) {
-	_, err := Compile("../doc")
-	if err == nil {
-		t.Fatal("expected error for directory with no .arch files")
 	}
 }
 

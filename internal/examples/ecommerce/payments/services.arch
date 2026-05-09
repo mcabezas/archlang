@@ -1,0 +1,5 @@
+import users
+
+service payment-processing
+
+collaboration payment-processing -> users.auth

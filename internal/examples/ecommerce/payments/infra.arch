@@ -1,0 +1,3 @@
+component payments-db
+
+collaboration payment-processing -> payments-db

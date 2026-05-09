@@ -37,6 +37,8 @@ func (l *Lexer) NextToken() token.Token {
 			tok.Type = token.ILLEGAL
 			tok.Literal = string(l.ch)
 		}
+	case '.':
+		tok = l.newToken(token.DOT)
 	case '{':
 		tok = l.newToken(token.LBRACE)
 	case '}':

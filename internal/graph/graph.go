@@ -15,70 +15,140 @@ const (
 
 type Node struct {
 	Name        string   `json:"name"`
+	Package     string   `json:"package"`
 	Kind        NodeKind `json:"kind"`
 	Downstreams []string `json:"downstreams"`
 	Upstreams   []string `json:"upstreams"`
 }
 
-type Graph struct {
-	nodes map[string]*Node
+func (n *Node) QualifiedName() string {
+	return n.Package + "." + n.Name
 }
 
-func Build(arch *ast.Architecture) (*Graph, []string) {
-	g := &Graph{nodes: make(map[string]*Node)}
+type Graph struct {
+	nodes    map[string]*Node // keyed by qualified name (pkg.name)
+	packages map[string]bool
+}
+
+// Build takes a map of package name → parsed AST and produces a unified graph.
+func Build(packages map[string]*ast.Architecture) (*Graph, []string) {
+	g := &Graph{
+		nodes:    make(map[string]*Node),
+		packages: make(map[string]bool),
+	}
 	var errors []string
 
-	// First pass: register all components and services
-	for _, stmt := range arch.Statements {
-		switch s := stmt.(type) {
-		case *ast.ComponentStatement:
-			if err := g.addNode(s.Name, KindComponent, s.Token.Line); err != "" {
-				errors = append(errors, err)
-			}
-		case *ast.ServiceStatement:
-			if err := g.addNode(s.Name, KindService, s.Token.Line); err != "" {
-				errors = append(errors, err)
+	for pkg := range packages {
+		g.packages[pkg] = true
+	}
+
+	// First pass: register all components and services per package
+	for pkg, arch := range packages {
+		for _, stmt := range arch.Statements {
+			switch s := stmt.(type) {
+			case *ast.ComponentStatement:
+				if err := g.addNode(pkg, s.Name, KindComponent, s.Token.Line); err != "" {
+					errors = append(errors, fmt.Sprintf("%s: %s", pkg, err))
+				}
+			case *ast.ServiceStatement:
+				if err := g.addNode(pkg, s.Name, KindService, s.Token.Line); err != "" {
+					errors = append(errors, fmt.Sprintf("%s: %s", pkg, err))
+				}
 			}
 		}
 	}
 
-	// Second pass: register collaborations
-	for _, stmt := range arch.Statements {
-		s, ok := stmt.(*ast.CollaborationStatement)
-		if !ok {
-			continue
+	// Second pass: validate imports and wire collaborations
+	for pkg, arch := range packages {
+		imports := collectImports(arch)
+
+		// Validate imports
+		for _, imp := range imports {
+			if !g.packages[imp.Package] {
+				errors = append(errors, fmt.Sprintf(
+					"%s: line %d: imported package %q does not exist",
+					pkg, imp.Token.Line, imp.Package))
+			}
 		}
 
-		source, sourceExists := g.nodes[s.Source]
-		if !sourceExists {
-			errors = append(errors, fmt.Sprintf(
-				"line %d: undeclared component or service %q in collaboration",
-				s.Token.Line, s.Source))
-		}
+		aliasMap := buildAliasMap(imports)
 
-		target, targetExists := g.nodes[s.Target]
-		if !targetExists {
-			errors = append(errors, fmt.Sprintf(
-				"line %d: undeclared component or service %q in collaboration",
-				s.Token.Line, s.Target))
-		}
+		for _, stmt := range arch.Statements {
+			s, ok := stmt.(*ast.CollaborationStatement)
+			if !ok {
+				continue
+			}
 
-		if sourceExists && targetExists {
-			source.Downstreams = append(source.Downstreams, s.Target)
-			target.Upstreams = append(target.Upstreams, s.Source)
+			sourceQN, err := g.resolveRef(pkg, s.Source, aliasMap, s.Token.Line)
+			if err != "" {
+				errors = append(errors, fmt.Sprintf("%s: %s", pkg, err))
+			}
+
+			targetQN, err := g.resolveRef(pkg, s.Target, aliasMap, s.Token.Line)
+			if err != "" {
+				errors = append(errors, fmt.Sprintf("%s: %s", pkg, err))
+			}
+
+			if sourceQN != "" && targetQN != "" {
+				g.nodes[sourceQN].Downstreams = append(g.nodes[sourceQN].Downstreams, targetQN)
+				g.nodes[targetQN].Upstreams = append(g.nodes[targetQN].Upstreams, sourceQN)
+			}
 		}
 	}
 
 	return g, errors
 }
 
-func (g *Graph) addNode(name string, kind NodeKind, line int) string {
-	if existing, ok := g.nodes[name]; ok {
+func (g *Graph) resolveRef(currentPkg string, ref ast.ComponentRef, aliases map[string]string, line int) (string, string) {
+	if ref.Package == "" {
+		// Local reference
+		qn := currentPkg + "." + ref.Name
+		if _, ok := g.nodes[qn]; !ok {
+			return "", fmt.Sprintf("line %d: undeclared %q in package %q", line, ref.Name, currentPkg)
+		}
+		return qn, ""
+	}
+
+	// Qualified reference: resolve alias to real package name
+	realPkg, ok := aliases[ref.Package]
+	if !ok {
+		return "", fmt.Sprintf("line %d: package alias %q not imported", line, ref.Package)
+	}
+
+	qn := realPkg + "." + ref.Name
+	if _, ok := g.nodes[qn]; !ok {
+		return "", fmt.Sprintf("line %d: undeclared %q in package %q", line, ref.Name, realPkg)
+	}
+	return qn, ""
+}
+
+func collectImports(arch *ast.Architecture) []*ast.ImportStatement {
+	var imports []*ast.ImportStatement
+	for _, stmt := range arch.Statements {
+		if imp, ok := stmt.(*ast.ImportStatement); ok {
+			imports = append(imports, imp)
+		}
+	}
+	return imports
+}
+
+func buildAliasMap(imports []*ast.ImportStatement) map[string]string {
+	m := make(map[string]string)
+	for _, imp := range imports {
+		m[imp.Alias] = imp.Package
+	}
+	return m
+}
+
+func (g *Graph) addNode(pkg, name string, kind NodeKind, line int) string {
+	qn := pkg + "." + name
+	if existing, ok := g.nodes[qn]; ok {
 		return fmt.Sprintf("line %d: duplicate declaration %q (already declared as %s)",
 			line, name, existing.Kind)
 	}
-	g.nodes[name] = &Node{
+	g.nodes[qn] = &Node{
 		Name:        name,
+		Package:     pkg,
 		Kind:        kind,
 		Downstreams: []string{},
 		Upstreams:   []string{},
@@ -104,7 +174,15 @@ func (g *Graph) Services() []*Node {
 	return nodes
 }
 
-func (g *Graph) GetNode(name string) (*Node, bool) {
-	n, ok := g.nodes[name]
+func (g *Graph) GetNode(qualifiedName string) (*Node, bool) {
+	n, ok := g.nodes[qualifiedName]
 	return n, ok
+}
+
+func (g *Graph) Packages() []string {
+	pkgs := make([]string, 0, len(g.packages))
+	for pkg := range g.packages {
+		pkgs = append(pkgs, pkg)
+	}
+	return pkgs
 }

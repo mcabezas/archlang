@@ -1,0 +1,7 @@
+import gateway as gw
+
+component ios-app
+component android-app
+
+collaboration ios-app -> gw.api
+collaboration android-app -> gw.api

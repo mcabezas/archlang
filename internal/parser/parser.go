@@ -43,6 +43,8 @@ func (p *Parser) Parse() *ast.Architecture {
 
 func (p *Parser) parseStatement() ast.Statement {
 	switch p.curToken.Type {
+	case token.IMPORT:
+		return p.parseImportStatement()
 	case token.COMPONENT:
 		return p.parseComponentStatement()
 	case token.SERVICE:
@@ -78,13 +80,33 @@ func (p *Parser) parseServiceStatement() *ast.ServiceStatement {
 	return stmt
 }
 
+func (p *Parser) parseImportStatement() *ast.ImportStatement {
+	stmt := &ast.ImportStatement{Token: p.curToken}
+
+	if !p.expectPeek(token.IDENT) {
+		return nil
+	}
+	stmt.Package = p.curToken.Literal
+	stmt.Alias = p.curToken.Literal
+
+	if p.peekTokenIs(token.AS) {
+		p.nextToken()
+		if !p.expectPeek(token.IDENT) {
+			return nil
+		}
+		stmt.Alias = p.curToken.Literal
+	}
+
+	return stmt
+}
+
 func (p *Parser) parseCollaborationStatement() *ast.CollaborationStatement {
 	stmt := &ast.CollaborationStatement{Token: p.curToken}
 
 	if !p.expectPeek(token.IDENT) {
 		return nil
 	}
-	stmt.Source = p.curToken.Literal
+	stmt.Source = p.parseComponentRef()
 
 	if !p.expectPeek(token.ARROW) {
 		return nil
@@ -93,9 +115,21 @@ func (p *Parser) parseCollaborationStatement() *ast.CollaborationStatement {
 	if !p.expectPeek(token.IDENT) {
 		return nil
 	}
-	stmt.Target = p.curToken.Literal
+	stmt.Target = p.parseComponentRef()
 
 	return stmt
+}
+
+func (p *Parser) parseComponentRef() ast.ComponentRef {
+	name := p.curToken.Literal
+	if p.peekTokenIs(token.DOT) {
+		p.nextToken() // consume dot
+		if !p.expectPeek(token.IDENT) {
+			return ast.ComponentRef{Package: name}
+		}
+		return ast.ComponentRef{Package: name, Name: p.curToken.Literal}
+	}
+	return ast.ComponentRef{Name: name}
 }
 
 func (p *Parser) nextToken() {

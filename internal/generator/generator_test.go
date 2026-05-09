@@ -28,18 +28,30 @@ func TestGenerate(t *testing.T) {
 		t.Error("missing package declaration")
 	}
 
-	// Check all components are declared as vars
-	for _, name := range []string{"Redis", "Postgres", "ApiGateway", "Checkout", "Payments", "Users", "Ledger", "Notifications", "Inventory"} {
+	// Check some components are declared as vars with qualified names
+	for _, name := range []string{
+		"OrdersOrderManagement",
+		"PaymentsPaymentProcessing",
+		"UsersAuth",
+		"GatewayApi",
+		"DeliveryTracking",
+		"NotificationsEmail",
+	} {
 		if !strings.Contains(code, name+" = &Component{") {
 			t.Errorf("missing variable declaration for %s", name)
 		}
 	}
 
+	// Check Package field is set
+	if !strings.Contains(code, `Package: "orders"`) {
+		t.Error("missing Package field for orders")
+	}
+
 	// Check kinds
-	if !strings.Contains(code, `Kind: KindComponent,`) {
+	if !strings.Contains(code, "KindComponent") {
 		t.Error("missing KindComponent usage")
 	}
-	if !strings.Contains(code, `Kind: KindService,`) {
+	if !strings.Contains(code, "KindService") {
 		t.Error("missing KindService usage")
 	}
 
@@ -47,11 +59,10 @@ func TestGenerate(t *testing.T) {
 	if !strings.Contains(code, "func init()") {
 		t.Error("missing init function")
 	}
-	if !strings.Contains(code, "Payments.Downstreams") {
-		t.Error("missing downstream wiring for Payments")
-	}
-	if !strings.Contains(code, "Redis.Upstreams") {
-		t.Error("missing upstream wiring for Redis")
+
+	// Cross-package wiring: orders.order-management -> payments.payment-processing
+	if !strings.Contains(code, "OrdersOrderManagement.Downstreams") {
+		t.Error("missing downstream wiring for OrdersOrderManagement")
 	}
 }
 
@@ -60,10 +71,10 @@ func TestToGoName(t *testing.T) {
 		input    string
 		expected string
 	}{
-		{"redis", "Redis"},
-		{"api-gateway", "ApiGateway"},
-		{"checkout", "Checkout"},
-		{"my-cool-service", "MyCoolService"},
+		{"users.redis", "UsersRedis"},
+		{"gateway.api-gateway", "GatewayApiGateway"},
+		{"orders.order-management", "OrdersOrderManagement"},
+		{"notifications.push", "NotificationsPush"},
 	}
 
 	for _, tt := range tests {

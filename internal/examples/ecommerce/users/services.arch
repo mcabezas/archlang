@@ -1,0 +1,5 @@
+service auth
+service profile
+
+collaboration auth -> users-db
+collaboration profile -> users-db

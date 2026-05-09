@@ -57,11 +57,69 @@ collaboration payments -> redis`
 	if !ok {
 		t.Fatalf("statements[2] not *ast.CollaborationStatement, got %T", arch.Statements[2])
 	}
-	if collab.Source != "payments" {
-		t.Fatalf("Source = %q, want %q", collab.Source, "payments")
+	if collab.Source.Name != "payments" || collab.Source.Package != "" {
+		t.Fatalf("Source = %+v, want local payments", collab.Source)
 	}
-	if collab.Target != "redis" {
-		t.Fatalf("Target = %q, want %q", collab.Target, "redis")
+	if collab.Target.Name != "redis" || collab.Target.Package != "" {
+		t.Fatalf("Target = %+v, want local redis", collab.Target)
+	}
+}
+
+func TestParseQualifiedCollaboration(t *testing.T) {
+	input := `import payments
+
+service order-management
+
+collaboration order-management -> payments.payment-processing`
+
+	arch := parseInput(t, input)
+	assertStatementCount(t, arch, 3)
+
+	collab, ok := arch.Statements[2].(*ast.CollaborationStatement)
+	if !ok {
+		t.Fatalf("statements[2] not *ast.CollaborationStatement, got %T", arch.Statements[2])
+	}
+	if collab.Source.Name != "order-management" || collab.Source.Package != "" {
+		t.Fatalf("Source = %+v, want local order-management", collab.Source)
+	}
+	if collab.Target.Package != "payments" || collab.Target.Name != "payment-processing" {
+		t.Fatalf("Target = %+v, want payments.payment-processing", collab.Target)
+	}
+}
+
+func TestParseImport(t *testing.T) {
+	input := `import notifications`
+
+	arch := parseInput(t, input)
+	assertStatementCount(t, arch, 1)
+
+	imp, ok := arch.Statements[0].(*ast.ImportStatement)
+	if !ok {
+		t.Fatalf("statements[0] not *ast.ImportStatement, got %T", arch.Statements[0])
+	}
+	if imp.Package != "notifications" {
+		t.Fatalf("Package = %q, want %q", imp.Package, "notifications")
+	}
+	if imp.Alias != "notifications" {
+		t.Fatalf("Alias = %q, want %q", imp.Alias, "notifications")
+	}
+}
+
+func TestParseImportWithAlias(t *testing.T) {
+	input := `import notifications as noti`
+
+	arch := parseInput(t, input)
+	assertStatementCount(t, arch, 1)
+
+	imp, ok := arch.Statements[0].(*ast.ImportStatement)
+	if !ok {
+		t.Fatalf("statements[0] not *ast.ImportStatement, got %T", arch.Statements[0])
+	}
+	if imp.Package != "notifications" {
+		t.Fatalf("Package = %q, want %q", imp.Package, "notifications")
+	}
+	if imp.Alias != "noti" {
+		t.Fatalf("Alias = %q, want %q", imp.Alias, "noti")
 	}
 }
 
@@ -112,6 +170,10 @@ func TestParseErrors(t *testing.T) {
 		},
 		{
 			input:       `collaboration payments ->`,
+			expectedErr: "expected IDENT, got EOF",
+		},
+		{
+			input:       `import`,
 			expectedErr: "expected IDENT, got EOF",
 		},
 	}
