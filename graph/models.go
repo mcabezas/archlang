@@ -19,6 +19,7 @@ type Service struct {
 type Infra struct{ Component }
 
 type Domain string
+type Org string
 
 type Visibility string
 
@@ -30,6 +31,7 @@ const (
 type component struct {
 	name        string
 	domain      Domain
+	org         Org
 	visibility  Visibility
 	downstreams []Component
 	upstreams   []Component
@@ -38,6 +40,7 @@ type component struct {
 type NewComponentOptions struct {
 	Name          string
 	Domain        Domain
+	Org           Org
 	Visibility    Visibility
 	RepositoryURL string
 }
@@ -53,6 +56,12 @@ func WithName(name string) NewComponentOption {
 func WithDomain(domain Domain) NewComponentOption {
 	return func(o *NewComponentOptions) {
 		o.Domain = domain
+	}
+}
+
+func WithOrg(org Org) NewComponentOption {
+	return func(o *NewComponentOptions) {
+		o.Org = org
 	}
 }
 
@@ -74,7 +83,7 @@ func NewComponent(options ...NewComponentOption) Component {
 		option(opts)
 	}
 
-	return &component{name: opts.Name, domain: opts.Domain, visibility: opts.visibility()}
+	return &component{name: opts.Name, domain: opts.Domain, org: opts.Org, visibility: opts.visibility()}
 }
 
 func NewService(options ...NewComponentOption) *Service {
@@ -84,7 +93,7 @@ func NewService(options ...NewComponentOption) *Service {
 	}
 
 	return &Service{
-		Component:     &component{name: opts.Name, domain: opts.Domain, visibility: opts.visibility()},
+		Component:     &component{name: opts.Name, domain: opts.Domain, org: opts.Org, visibility: opts.visibility()},
 		RepositoryURL: opts.RepositoryURL,
 	}
 }
@@ -96,7 +105,7 @@ func NewInfra(options ...NewComponentOption) *Infra {
 	}
 
 	return &Infra{
-		Component: &component{name: opts.Name, domain: opts.Domain, visibility: opts.visibility()},
+		Component: &component{name: opts.Name, domain: opts.Domain, org: opts.Org, visibility: opts.visibility()},
 	}
 }
 
@@ -125,6 +134,10 @@ func (n *component) Upstreams() []Component {
 
 func (n *component) Domain() Domain {
 	return n.domain
+}
+
+func (n *component) Org() Org {
+	return n.org
 }
 
 func (n *component) Visibility() Visibility {

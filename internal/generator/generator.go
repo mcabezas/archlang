@@ -51,6 +51,7 @@ type graphNode struct {
 	qualifiedName string
 	name          string
 	domain        string
+	org           string
 	isService     bool
 	isInfra       bool
 	isPublic      bool
@@ -70,6 +71,7 @@ func buildGraph(allDomains map[string]*ast.Architecture) (*builtGraph, []string)
 
 	// Register components, services, and infra
 	for domain, arch := range allDomains {
+		org := inferOrg(domain)
 		for _, stmt := range arch.Statements {
 			switch s := stmt.(type) {
 			case *ast.ComponentStatement:
@@ -82,6 +84,7 @@ func buildGraph(allDomains map[string]*ast.Architecture) (*builtGraph, []string)
 					qualifiedName: qn,
 					name:          s.Name,
 					domain:        domain,
+					org:           org,
 					isPublic:      s.Public,
 				}
 				if s.Infra != "" {
@@ -98,6 +101,7 @@ func buildGraph(allDomains map[string]*ast.Architecture) (*builtGraph, []string)
 					qualifiedName: qn,
 					name:          s.Name,
 					domain:        domain,
+					org:           org,
 					isService:     true,
 					isPublic:      s.Public,
 				}
@@ -111,6 +115,7 @@ func buildGraph(allDomains map[string]*ast.Architecture) (*builtGraph, []string)
 					qualifiedName: qn,
 					name:          s.Name,
 					domain:        domain,
+					org:           org,
 					isInfra:       true,
 					isPublic:      s.Public,
 				}
@@ -158,6 +163,25 @@ func buildGraph(allDomains map[string]*ast.Architecture) (*builtGraph, []string)
 			if sourceQN != "" && targetQN != "" {
 				nodes[sourceQN].downstreams = append(nodes[sourceQN].downstreams, targetQN)
 				nodes[targetQN].upstreams = append(nodes[targetQN].upstreams, sourceQN)
+			}
+		}
+	}
+
+	// Validate cross-org collaborations: both ends must be public
+	for _, n := range nodes {
+		for _, dsQN := range n.downstreams {
+			target := nodes[dsQN]
+			if n.org != "" && target.org != "" && n.org != target.org {
+				if !n.isPublic {
+					errors = append(errors, fmt.Sprintf(
+						"%s: %q is not public — only public components can communicate across organizations (%s -> %s)",
+						n.domain, n.name, n.org, target.org))
+				}
+				if !target.isPublic {
+					errors = append(errors, fmt.Sprintf(
+						"%s: %q is not public — only public components can communicate across organizations (%s -> %s)",
+						target.domain, target.name, n.org, target.org))
+				}
 			}
 		}
 	}
@@ -232,8 +256,28 @@ func generateCode(g *builtGraph, packageName string) ([]byte, error) {
 	}
 	sort.Strings(domainNames)
 
-	// Domain constants
+	// Collect unique orgs
+	orgSet := make(map[string]bool)
+	for _, qn := range g.order {
+		o := g.nodes[qn].org
+		if o != "" {
+			orgSet[o] = true
+		}
+	}
+	var orgNames []string
+	for o := range orgSet {
+		orgNames = append(orgNames, o)
+	}
+	sort.Strings(orgNames)
+
+	// Org and Domain constants
 	buf.WriteString("const (\n")
+	for _, o := range orgNames {
+		fmt.Fprintf(&buf, "\t%s graph.Org = %q\n", toGoName(o), o)
+	}
+	if len(orgNames) > 0 && len(domainNames) > 0 {
+		buf.WriteString("\n")
+	}
 	for _, d := range domainNames {
 		fmt.Fprintf(&buf, "\t%s graph.Domain = %q\n", toGoName(d), d)
 	}
@@ -247,6 +291,9 @@ func generateCode(g *builtGraph, packageName string) ([]byte, error) {
 		domainConst := toGoName(n.domain)
 
 		opts := fmt.Sprintf("graph.WithName(%q), graph.WithDomain(%s)", n.name, domainConst)
+		if n.org != "" {
+			opts += fmt.Sprintf(", graph.WithOrg(%s)", toGoName(n.org))
+		}
 		if n.isPublic {
 			opts += ", graph.WithVisibility(graph.Public)"
 		}
@@ -359,6 +406,20 @@ func connectedComponents(g *builtGraph) [][]string {
 	}
 
 	return components
+}
+
+// inferOrg extracts the org name from a domain path.
+// If the domain starts with "orgs/<name>/...", the org is "<name>".
+// Otherwise, the component has no org.
+func inferOrg(domain string) string {
+	if !strings.HasPrefix(domain, "orgs/") {
+		return ""
+	}
+	rest := strings.TrimPrefix(domain, "orgs/")
+	if i := strings.Index(rest, "/"); i > 0 {
+		return rest[:i]
+	}
+	return rest
 }
 
 func toGoName(name string) string {
