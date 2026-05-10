@@ -17,25 +17,25 @@ import (
 // Generate discovers .arch files in dir, parses them, builds the graph,
 // and produces Go source code containing the hardcoded graph.
 func Generate(dir string, packageName string) ([]byte, error) {
-	packages, err := discoverPackages(dir)
+	domains, err := discoverDomains(dir)
 	if err != nil {
 		return nil, err
 	}
 
-	if len(packages) == 0 {
+	if len(domains) == 0 {
 		return nil, fmt.Errorf("no .arch files found in %q", dir)
 	}
 
 	parsed := make(map[string]*ast.Architecture)
-	for pkg, input := range packages {
+	for domain, input := range domains {
 		l := lexer.New(input)
 		p := parser.New(l)
 		arch := p.Parse()
 
 		if len(p.Errors()) > 0 {
-			return nil, fmt.Errorf("parse errors in package %q:\n  %s", pkg, strings.Join(p.Errors(), "\n  "))
+			return nil, fmt.Errorf("parse errors in domain %q:\n  %s", domain, strings.Join(p.Errors(), "\n  "))
 		}
-		parsed[pkg] = arch
+		parsed[domain] = arch
 	}
 
 	g, errs := buildGraph(parsed)
@@ -51,10 +51,9 @@ type graphNode struct {
 	qualifiedName string
 	name          string
 	domain        string
-	isDomain      bool
-	isPackage     bool
 	isService     bool
 	isInfra       bool
+	isPublic      bool
 	downstreams   []string // qualified names
 	upstreams     []string // qualified names
 }
@@ -65,94 +64,80 @@ type builtGraph struct {
 	order []string // sorted qualified names
 }
 
-func buildGraph(packages map[string]*ast.Architecture) (*builtGraph, []string) {
+func buildGraph(allDomains map[string]*ast.Architecture) (*builtGraph, []string) {
 	nodes := make(map[string]*graphNode)
 	var errors []string
 
-	// Determine domains
-	domains := make(map[string]bool)
-	for pkg, arch := range packages {
-		for _, stmt := range arch.Statements {
-			if _, ok := stmt.(*ast.DomainStatement); ok {
-				domains[pkg] = true
-				break
-			}
-		}
-	}
-
-	// Validate: no nested domains
-	for pkg := range domains {
-		for parentPkg := range domains {
-			if pkg != parentPkg && strings.HasPrefix(pkg, parentPkg+"/") {
-				errors = append(errors, fmt.Sprintf(
-					"%s: cannot declare domain inside domain %q — nested domains are not allowed",
-					pkg, parentPkg))
-			}
-		}
-	}
-
-	// Create package/domain nodes
-	for pkg := range packages {
-		n := &graphNode{
-			qualifiedName: pkg,
-			name:          pkg,
-		}
-		if domains[pkg] {
-			n.isDomain = true
-		} else {
-			n.isPackage = true
-		}
-		nodes[pkg] = n
-	}
-
-	// First pass: register components and services
-	for pkg, arch := range packages {
+	// Register components, services, and infra
+	for domain, arch := range allDomains {
 		for _, stmt := range arch.Statements {
 			switch s := stmt.(type) {
 			case *ast.ComponentStatement:
-				qn := pkg + "." + s.Name
+				qn := domain + "." + s.Name
 				if _, exists := nodes[qn]; exists {
-					errors = append(errors, fmt.Sprintf("%s: line %d: duplicate declaration %q", pkg, s.Token.Line, s.Name))
+					errors = append(errors, fmt.Sprintf("%s: line %d: duplicate declaration %q", domain, s.Token.Line, s.Name))
 					continue
 				}
 				n := &graphNode{
 					qualifiedName: qn,
 					name:          s.Name,
-					domain:        pkg,
+					domain:        domain,
+					isPublic:      s.Public,
 				}
 				if s.Infra != "" {
 					n.isInfra = true
 				}
 				nodes[qn] = n
 			case *ast.ServiceStatement:
-				qn := pkg + "." + s.Name
+				qn := domain + "." + s.Name
 				if _, exists := nodes[qn]; exists {
-					errors = append(errors, fmt.Sprintf("%s: line %d: duplicate declaration %q", pkg, s.Token.Line, s.Name))
+					errors = append(errors, fmt.Sprintf("%s: line %d: duplicate declaration %q", domain, s.Token.Line, s.Name))
 					continue
 				}
 				nodes[qn] = &graphNode{
 					qualifiedName: qn,
 					name:          s.Name,
-					domain:        pkg,
+					domain:        domain,
 					isService:     true,
+					isPublic:      s.Public,
+				}
+			case *ast.InfraStatement:
+				qn := domain + "." + s.Name
+				if _, exists := nodes[qn]; exists {
+					errors = append(errors, fmt.Sprintf("%s: line %d: duplicate declaration %q", domain, s.Token.Line, s.Name))
+					continue
+				}
+				nodes[qn] = &graphNode{
+					qualifiedName: qn,
+					name:          s.Name,
+					domain:        domain,
+					isInfra:       true,
+					isPublic:      s.Public,
 				}
 			}
 		}
 	}
 
-	// Second pass: validate imports and wire collaborations
-	for pkg, arch := range packages {
+	// Validate imports and wire collaborations
+	for domain, arch := range allDomains {
 		imports := collectImports(arch)
 
 		for _, imp := range imports {
-			if _, ok := nodes[imp.Package]; !ok {
+			found := false
+			for other := range allDomains {
+				if other == imp.Domain {
+					found = true
+					break
+				}
+			}
+			if !found {
 				errors = append(errors, fmt.Sprintf(
-					"%s: line %d: imported package %q does not exist",
-					pkg, imp.Token.Line, imp.Package))
+					"%s: line %d: imported domain %q does not exist",
+					domain, imp.Token.Line, imp.Domain))
 			}
 		}
 
-		aliasMap := buildAliasMap(imports)
+		domainAliases := buildAliasMap(imports)
 
 		for _, stmt := range arch.Statements {
 			s, ok := stmt.(*ast.CollaborationStatement)
@@ -160,38 +145,19 @@ func buildGraph(packages map[string]*ast.Architecture) (*builtGraph, []string) {
 				continue
 			}
 
-			sourceQN, err := resolveRef(pkg, s.Source, aliasMap, s.Token.Line, nodes)
+			sourceQN, err := resolveRef(domain, s.Source, domainAliases, s.Token.Line, nodes)
 			if err != "" {
-				errors = append(errors, fmt.Sprintf("%s: %s", pkg, err))
+				errors = append(errors, fmt.Sprintf("%s: %s", domain, err))
 			}
 
-			targetQN, err := resolveRef(pkg, s.Target, aliasMap, s.Token.Line, nodes)
+			targetQN, err := resolveRef(domain, s.Target, domainAliases, s.Token.Line, nodes)
 			if err != "" {
-				errors = append(errors, fmt.Sprintf("%s: %s", pkg, err))
+				errors = append(errors, fmt.Sprintf("%s: %s", domain, err))
 			}
 
 			if sourceQN != "" && targetQN != "" {
 				nodes[sourceQN].downstreams = append(nodes[sourceQN].downstreams, targetQN)
 				nodes[targetQN].upstreams = append(nodes[targetQN].upstreams, sourceQN)
-			}
-		}
-	}
-
-	// Third pass: infer domain-level edges
-	edges := make(map[string]bool)
-	for _, n := range nodes {
-		if n.domain == "" {
-			continue
-		}
-		for _, dsQN := range n.downstreams {
-			ds := nodes[dsQN]
-			if ds.domain != "" && n.domain != ds.domain {
-				edge := n.domain + "->" + ds.domain
-				if !edges[edge] {
-					edges[edge] = true
-					nodes[n.domain].downstreams = append(nodes[n.domain].downstreams, ds.domain)
-					nodes[ds.domain].upstreams = append(nodes[ds.domain].upstreams, n.domain)
-				}
 			}
 		}
 	}
@@ -206,23 +172,23 @@ func buildGraph(packages map[string]*ast.Architecture) (*builtGraph, []string) {
 	return &builtGraph{nodes: nodes, order: order}, errors
 }
 
-func resolveRef(currentPkg string, ref ast.ComponentRef, aliases map[string]string, line int, nodes map[string]*graphNode) (string, string) {
-	if ref.Package == "" {
-		qn := currentPkg + "." + ref.Name
+func resolveRef(currentDomain string, ref ast.ComponentRef, aliases map[string]string, line int, nodes map[string]*graphNode) (string, string) {
+	if ref.Domain == "" {
+		qn := currentDomain + "." + ref.Name
 		if _, ok := nodes[qn]; !ok {
-			return "", fmt.Sprintf("line %d: undeclared %q in package %q", line, ref.Name, currentPkg)
+			return "", fmt.Sprintf("line %d: undeclared %q in domain %q", line, ref.Name, currentDomain)
 		}
 		return qn, ""
 	}
 
-	realPkg, ok := aliases[ref.Package]
+	realDomain, ok := aliases[ref.Domain]
 	if !ok {
-		return "", fmt.Sprintf("line %d: package alias %q not imported", line, ref.Package)
+		return "", fmt.Sprintf("line %d: domain alias %q not imported", line, ref.Domain)
 	}
 
-	qn := realPkg + "." + ref.Name
+	qn := realDomain + "." + ref.Name
 	if _, ok := nodes[qn]; !ok {
-		return "", fmt.Sprintf("line %d: undeclared %q in package %q", line, ref.Name, realPkg)
+		return "", fmt.Sprintf("line %d: undeclared %q in domain %q", line, ref.Name, realDomain)
 	}
 	return qn, ""
 }
@@ -240,7 +206,7 @@ func collectImports(arch *ast.Architecture) []*ast.ImportStatement {
 func buildAliasMap(imports []*ast.ImportStatement) map[string]string {
 	m := make(map[string]string)
 	for _, imp := range imports {
-		m[imp.Alias] = imp.Package
+		m[imp.Alias] = imp.Domain
 	}
 	return m
 }
@@ -252,18 +218,52 @@ func generateCode(g *builtGraph, packageName string) ([]byte, error) {
 	fmt.Fprintf(&buf, "package %s\n\n", packageName)
 	buf.WriteString("import \"github.com/mcabezas/archlang/graph\"\n\n")
 
+	// Collect unique domains
+	domainSet := make(map[string]bool)
+	for _, qn := range g.order {
+		d := g.nodes[qn].domain
+		if d != "" {
+			domainSet[d] = true
+		}
+	}
+	var domainNames []string
+	for d := range domainSet {
+		domainNames = append(domainNames, d)
+	}
+	sort.Strings(domainNames)
+
+	// Domain constants
+	buf.WriteString("const (\n")
+	for _, d := range domainNames {
+		fmt.Fprintf(&buf, "\t%s graph.Domain = %q\n", toGoName(d), d)
+	}
+	buf.WriteString(")\n\n")
+
 	// Variable declarations
 	buf.WriteString("var (\n")
 	for _, qn := range g.order {
 		n := g.nodes[qn]
 		varName := toGoName(qn)
-		constructor := constructorFor(n)
-		fmt.Fprintf(&buf, "\t%s = graph.%s(%q)\n", varName, constructor, n.name)
+		domainConst := toGoName(n.domain)
+
+		opts := fmt.Sprintf("graph.WithName(%q), graph.WithDomain(%s)", n.name, domainConst)
+		if n.isPublic {
+			opts += ", graph.WithVisibility(graph.Public)"
+		}
+
+		constructor := "graph.NewComponent"
+		if n.isService {
+			constructor = "graph.NewService"
+		} else if n.isInfra {
+			constructor = "graph.NewInfra"
+		}
+
+		fmt.Fprintf(&buf, "\t%s = %s(%s)\n", varName, constructor, opts)
 	}
 	buf.WriteString(")\n\n")
 
-	// Helper slices
-	buf.WriteString("var AllNodes = []graph.Node{\n")
+	// AllComponents slice
+	buf.WriteString("var AllComponents = []graph.Component{\n")
 	for _, qn := range g.order {
 		fmt.Fprintf(&buf, "\t%s,\n", toGoName(qn))
 	}
@@ -276,46 +276,89 @@ func generateCode(g *builtGraph, packageName string) ([]byte, error) {
 			services = append(services, qn)
 		}
 	}
-	buf.WriteString("var AllServices = []graph.Node{\n")
+	buf.WriteString("var AllServices = []graph.Component{\n")
 	for _, qn := range services {
 		fmt.Fprintf(&buf, "\t%s,\n", toGoName(qn))
 	}
 	buf.WriteString("}\n\n")
 
-	// Graph construction
-	buf.WriteString("var Graph = func() *graph.Graph {\n")
-	buf.WriteString("\tg := graph.NewGraph()\n")
-	for _, qn := range g.order {
-		fmt.Fprintf(&buf, "\tg.Register(%q, %s)\n", qn, toGoName(qn))
-	}
-	buf.WriteString("\n")
+	// Partition into connected components
+	components := connectedComponents(g)
 
-	// Wire edges
-	for _, qn := range g.order {
-		n := g.nodes[qn]
-		for _, dsQN := range n.downstreams {
-			fmt.Fprintf(&buf, "\tg.AddDownstream(%s, %s)\n", toGoName(qn), toGoName(dsQN))
+	// AllGraphs — one graph per connected component
+	buf.WriteString("var AllGraphs = func() []*graph.Graph {\n")
+	for i, comp := range components {
+		fmt.Fprintf(&buf, "\tg%d := graph.NewGraph()\n", i)
+		for _, qn := range comp {
+			fmt.Fprintf(&buf, "\tg%d.Register(%q, %s)\n", i, qn, toGoName(qn))
 		}
+		for _, qn := range comp {
+			n := g.nodes[qn]
+			for _, dsQN := range n.downstreams {
+				fmt.Fprintf(&buf, "\tg%d.AddDownstream(%s, %s)\n", i, toGoName(qn), toGoName(dsQN))
+			}
+		}
+		buf.WriteString("\n")
 	}
-	buf.WriteString("\treturn g\n")
+	buf.WriteString("\treturn []*graph.Graph{")
+	for i := range components {
+		if i > 0 {
+			buf.WriteString(", ")
+		}
+		fmt.Fprintf(&buf, "g%d", i)
+	}
+	buf.WriteString("}\n")
 	buf.WriteString("}()\n")
 
 	return format.Source(buf.Bytes())
 }
 
-func constructorFor(n *graphNode) string {
-	switch {
-	case n.isDomain:
-		return "NewDomain"
-	case n.isPackage:
-		return "NewPackage"
-	case n.isService:
-		return "NewService"
-	case n.isInfra:
-		return "NewInfra"
-	default:
-		return "NewComponent"
+// connectedComponents partitions the graph into connected subgraphs.
+// Edges are treated as undirected for connectivity.
+func connectedComponents(g *builtGraph) [][]string {
+	visited := make(map[string]bool)
+	neighbors := make(map[string]map[string]bool)
+
+	// Build undirected adjacency
+	for _, qn := range g.order {
+		if neighbors[qn] == nil {
+			neighbors[qn] = make(map[string]bool)
+		}
+		n := g.nodes[qn]
+		for _, dsQN := range n.downstreams {
+			neighbors[qn][dsQN] = true
+			if neighbors[dsQN] == nil {
+				neighbors[dsQN] = make(map[string]bool)
+			}
+			neighbors[dsQN][qn] = true
+		}
 	}
+
+	var components [][]string
+	for _, qn := range g.order {
+		if visited[qn] {
+			continue
+		}
+		// BFS
+		var comp []string
+		queue := []string{qn}
+		visited[qn] = true
+		for len(queue) > 0 {
+			cur := queue[0]
+			queue = queue[1:]
+			comp = append(comp, cur)
+			for neighbor := range neighbors[cur] {
+				if !visited[neighbor] {
+					visited[neighbor] = true
+					queue = append(queue, neighbor)
+				}
+			}
+		}
+		sort.Strings(comp)
+		components = append(components, comp)
+	}
+
+	return components
 }
 
 func toGoName(name string) string {
@@ -330,10 +373,10 @@ func toGoName(name string) string {
 	return strings.Join(parts, "")
 }
 
-// discoverPackages walks the directory tree and returns a map of
-// package name to concatenated .arch file contents.
-func discoverPackages(root string) (map[string]string, error) {
-	packages := make(map[string]string)
+// discoverDomains walks the directory tree and returns a map of
+// domain name to concatenated .arch file contents.
+func discoverDomains(root string) (map[string]string, error) {
+	domains := make(map[string]string)
 
 	err := filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
@@ -356,12 +399,12 @@ func discoverPackages(root string) (map[string]string, error) {
 			return err
 		}
 
-		pkgName := rel
-		if pkgName == "." {
-			pkgName = filepath.Base(root)
+		domainName := rel
+		if domainName == "." {
+			domainName = filepath.Base(root)
 		}
 
-		packages[pkgName] = input
+		domains[domainName] = input
 		return nil
 	})
 
@@ -369,7 +412,7 @@ func discoverPackages(root string) (map[string]string, error) {
 		return nil, fmt.Errorf("cannot walk directory %q: %w", root, err)
 	}
 
-	return packages, nil
+	return domains, nil
 }
 
 func readArchFiles(dir string) (string, error) {

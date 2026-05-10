@@ -43,14 +43,16 @@ func (p *Parser) Parse() *ast.Architecture {
 
 func (p *Parser) parseStatement() ast.Statement {
 	switch p.curToken.Type {
-	case token.DOMAIN:
-		return &ast.DomainStatement{Token: p.curToken}
 	case token.IMPORT:
 		return p.parseImportStatement()
+	case token.PUBLIC, token.INTERNAL:
+		return p.parseVisibilityStatement()
 	case token.COMPONENT:
-		return p.parseComponentStatement()
+		return p.parseComponentStatement(false)
 	case token.SERVICE:
-		return p.parseServiceStatement()
+		return p.parseServiceStatement(false)
+	case token.INFRA:
+		return p.parseInfraStatement(false)
 	case token.COLLABORATION:
 		return p.parseCollaborationStatement()
 	case token.IDENT:
@@ -68,8 +70,25 @@ func (p *Parser) parseStatement() ast.Statement {
 	}
 }
 
-func (p *Parser) parseComponentStatement() *ast.ComponentStatement {
-	stmt := &ast.ComponentStatement{Token: p.curToken}
+func (p *Parser) parseVisibilityStatement() ast.Statement {
+	isPublic := p.curToken.Type == token.PUBLIC
+	p.nextToken()
+	switch p.curToken.Type {
+	case token.COMPONENT:
+		return p.parseComponentStatement(isPublic)
+	case token.SERVICE:
+		return p.parseServiceStatement(isPublic)
+	case token.INFRA:
+		return p.parseInfraStatement(isPublic)
+	default:
+		p.addError("expected component, service, or infra after visibility modifier at line %d, column %d",
+			p.curToken.Line, p.curToken.Column)
+		return nil
+	}
+}
+
+func (p *Parser) parseComponentStatement(public bool) *ast.ComponentStatement {
+	stmt := &ast.ComponentStatement{Token: p.curToken, Public: public}
 
 	if !p.expectPeek(token.IDENT) {
 		return nil
@@ -85,8 +104,8 @@ func (p *Parser) parseComponentStatement() *ast.ComponentStatement {
 	return stmt
 }
 
-func (p *Parser) parseServiceStatement() *ast.ServiceStatement {
-	stmt := &ast.ServiceStatement{Token: p.curToken}
+func (p *Parser) parseServiceStatement(public bool) *ast.ServiceStatement {
+	stmt := &ast.ServiceStatement{Token: p.curToken, Public: public}
 
 	if !p.expectPeek(token.IDENT) {
 		return nil
@@ -98,6 +117,18 @@ func (p *Parser) parseServiceStatement() *ast.ServiceStatement {
 		p.nextToken() // consume {
 		p.parseComponentAttributes(&stmt.Frontend, nil)
 	}
+
+	return stmt
+}
+
+func (p *Parser) parseInfraStatement(public bool) *ast.InfraStatement {
+	stmt := &ast.InfraStatement{Token: p.curToken, Public: public}
+
+	if !p.expectPeek(token.IDENT) {
+		return nil
+	}
+
+	stmt.Name = p.curToken.Literal
 
 	return stmt
 }
@@ -138,7 +169,7 @@ func (p *Parser) parseImportStatement() *ast.ImportStatement {
 	if !p.expectPeek(token.IDENT) {
 		return nil
 	}
-	stmt.Package = p.curToken.Literal
+	stmt.Domain = p.curToken.Literal
 	stmt.Alias = p.curToken.Literal
 
 	if p.peekTokenIs(token.AS) {
@@ -204,9 +235,9 @@ func (p *Parser) parseComponentRef() ast.ComponentRef {
 	if p.peekTokenIs(token.DOT) {
 		p.nextToken() // consume dot
 		if !p.expectPeek(token.IDENT) {
-			return ast.ComponentRef{Package: name}
+			return ast.ComponentRef{Domain: name}
 		}
-		return ast.ComponentRef{Package: name, Name: p.curToken.Literal}
+		return ast.ComponentRef{Domain: name, Name: p.curToken.Literal}
 	}
 	return ast.ComponentRef{Name: name}
 }

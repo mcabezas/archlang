@@ -15,10 +15,11 @@ const (
 	COLLABORATION = "COLLABORATION"
 	IMPORT        = "IMPORT"
 	AS            = "AS"
-	DOMAIN        = "DOMAIN"
 
 	FRONTEND = "FRONTEND"
 	INFRA    = "INFRA"
+	PUBLIC   = "PUBLIC"
+	INTERNAL = "INTERNAL"
 
 	// Operators
 	ARROW  = "->"
@@ -48,9 +49,10 @@ var keywords = map[string]TokenType{
 	"collaboration": COLLABORATION,
 	"import":        IMPORT,
 	"as":            AS,
-	"domain":        DOMAIN,
 	"frontend":      FRONTEND,
 	"infra":         INFRA,
+	"public":        PUBLIC,
+	"internal":      INTERNAL,
 }
 
 func LookupIdent(ident string) TokenType {

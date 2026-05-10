@@ -39,34 +39,58 @@ func TestGenerate(t *testing.T) {
 		}
 	}
 
-	// Check domain uses NewDomain constructor
-	if !strings.Contains(code, "graph.NewDomain(") {
-		t.Error("missing NewDomain constructor")
-	}
-
-	// Check service uses NewService constructor
+	// Check service uses NewService with options
 	if !strings.Contains(code, "graph.NewService(") {
 		t.Error("missing NewService constructor")
 	}
 
-	// Check infra uses NewInfra constructor
+	// Check infra uses NewInfra with options
 	if !strings.Contains(code, "graph.NewInfra(") {
 		t.Error("missing NewInfra constructor")
 	}
 
-	// Check graph construction
-	if !strings.Contains(code, "graph.NewGraph()") {
-		t.Error("missing graph construction")
+	// Check WithName and WithDomain are used
+	if !strings.Contains(code, "graph.WithName(") {
+		t.Error("missing WithName option")
+	}
+	if !strings.Contains(code, "graph.WithDomain(") {
+		t.Error("missing WithDomain option")
+	}
+
+	// Check AllGraphs
+	if !strings.Contains(code, "var AllGraphs") {
+		t.Error("missing AllGraphs declaration")
+	}
+
+	// Check AllComponents uses graph.Component
+	if !strings.Contains(code, "[]graph.Component") {
+		t.Error("missing graph.Component type in slices")
 	}
 
 	// Check edge wiring
-	if !strings.Contains(code, "g.AddDownstream(") {
+	if !strings.Contains(code, ".AddDownstream(") {
 		t.Error("missing downstream wiring")
 	}
 
 	// Check registration
-	if !strings.Contains(code, "g.Register(") {
+	if !strings.Contains(code, ".Register(") {
 		t.Error("missing node registration")
+	}
+}
+
+func TestConnectedComponents(t *testing.T) {
+	g := &builtGraph{
+		nodes: map[string]*graphNode{
+			"pkg1.a": {qualifiedName: "pkg1.a", name: "a", domain: "pkg1", isService: true, downstreams: []string{"pkg1.b"}},
+			"pkg1.b": {qualifiedName: "pkg1.b", name: "b", domain: "pkg1", isService: true, upstreams: []string{"pkg1.a"}},
+			"pkg2.x": {qualifiedName: "pkg2.x", name: "x", domain: "pkg2", isService: true},
+		},
+		order: []string{"pkg1.a", "pkg1.b", "pkg2.x"},
+	}
+
+	components := connectedComponents(g)
+	if len(components) != 2 {
+		t.Fatalf("expected 2 connected components, got %d", len(components))
 	}
 }
 

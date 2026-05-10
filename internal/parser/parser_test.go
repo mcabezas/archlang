@@ -57,10 +57,10 @@ collaboration payments -> redis`
 	if !ok {
 		t.Fatalf("statements[2] not *ast.CollaborationStatement, got %T", arch.Statements[2])
 	}
-	if collab.Source.Name != "payments" || collab.Source.Package != "" {
+	if collab.Source.Name != "payments" || collab.Source.Domain != "" {
 		t.Fatalf("Source = %+v, want local payments", collab.Source)
 	}
-	if collab.Target.Name != "redis" || collab.Target.Package != "" {
+	if collab.Target.Name != "redis" || collab.Target.Domain != "" {
 		t.Fatalf("Target = %+v, want local redis", collab.Target)
 	}
 }
@@ -79,10 +79,10 @@ collaboration order-management -> payments.payment-processing`
 	if !ok {
 		t.Fatalf("statements[2] not *ast.CollaborationStatement, got %T", arch.Statements[2])
 	}
-	if collab.Source.Name != "order-management" || collab.Source.Package != "" {
+	if collab.Source.Name != "order-management" || collab.Source.Domain != "" {
 		t.Fatalf("Source = %+v, want local order-management", collab.Source)
 	}
-	if collab.Target.Package != "payments" || collab.Target.Name != "payment-processing" {
+	if collab.Target.Domain != "payments" || collab.Target.Name != "payment-processing" {
 		t.Fatalf("Target = %+v, want payments.payment-processing", collab.Target)
 	}
 }
@@ -97,8 +97,8 @@ func TestParseImport(t *testing.T) {
 	if !ok {
 		t.Fatalf("statements[0] not *ast.ImportStatement, got %T", arch.Statements[0])
 	}
-	if imp.Package != "notifications" {
-		t.Fatalf("Package = %q, want %q", imp.Package, "notifications")
+	if imp.Domain != "notifications" {
+		t.Fatalf("Domain = %q, want %q", imp.Domain, "notifications")
 	}
 	if imp.Alias != "notifications" {
 		t.Fatalf("Alias = %q, want %q", imp.Alias, "notifications")
@@ -115,8 +115,8 @@ func TestParseImportWithAlias(t *testing.T) {
 	if !ok {
 		t.Fatalf("statements[0] not *ast.ImportStatement, got %T", arch.Statements[0])
 	}
-	if imp.Package != "notifications" {
-		t.Fatalf("Package = %q, want %q", imp.Package, "notifications")
+	if imp.Domain != "notifications" {
+		t.Fatalf("Domain = %q, want %q", imp.Domain, "notifications")
 	}
 	if imp.Alias != "noti" {
 		t.Fatalf("Alias = %q, want %q", imp.Alias, "noti")

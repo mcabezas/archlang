@@ -1,5 +1,3 @@
-domain
-
 import notifications as noti
 
 service tracking
