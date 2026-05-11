@@ -458,6 +458,28 @@ flow purchase {
 	}
 }
 
+func TestParseFlowBlockWithInlineDescription(t *testing.T) {
+	input := `feature checkout: "buy stuff"
+service a
+service b
+flow purchase "End-to-end purchase journey" {
+  collaboration a -> b {
+    feature checkout
+  }
+}`
+
+	arch := parseInput(t, input)
+	assertStatementCount(t, arch, 4)
+
+	collab := arch.Statements[3].(*ast.CollaborationStatement)
+	if collab.Flow != "purchase" {
+		t.Fatalf("Flow = %q, want %q", collab.Flow, "purchase")
+	}
+	if collab.FlowDescription != "End-to-end purchase journey" {
+		t.Fatalf("FlowDescription = %q, want %q", collab.FlowDescription, "End-to-end purchase journey")
+	}
+}
+
 func TestParseInlineFlow(t *testing.T) {
 	input := `feature checkout: "buy stuff"
 service a

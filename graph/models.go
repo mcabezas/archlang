@@ -40,6 +40,7 @@ type Collaboration struct {
 	CardinalityBy string
 	Flow          Flow
 	Step          string
+	StepOrder     int
 }
 
 type Visibility string

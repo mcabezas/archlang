@@ -293,13 +293,19 @@ func (p *Parser) parseFlowBlock() []ast.Statement {
 	}
 	flowName := p.curToken.Literal
 
+	// Optional inline description: flow name "description" { ... }
+	var flowDescription string
+	if p.peekTokenIs(token.STRING) {
+		p.nextToken()
+		flowDescription = p.curToken.Literal
+	}
+
 	if !p.expectPeek(token.LBRACE) {
 		return nil
 	}
 
-	// Optional description at the top of the flow block
-	var flowDescription string
-	if p.peekTokenIs(token.DESCRIPTION) {
+	// Optional description inside block: description: "..."
+	if flowDescription == "" && p.peekTokenIs(token.DESCRIPTION) {
 		p.nextToken() // consume description
 		if !p.expectPeek(token.COLON) {
 			return nil
@@ -311,6 +317,8 @@ func (p *Parser) parseFlowBlock() []ast.Statement {
 	}
 
 	var stmts []ast.Statement
+	stepOrderMap := make(map[string]int)
+	nextOrder := 1
 	for !p.peekTokenIs(token.RBRACE) && !p.peekTokenIs(token.EOF) {
 		p.nextToken()
 		if p.curToken.Type != token.COLLABORATION {
@@ -326,6 +334,13 @@ func (p *Parser) parseFlowBlock() []ast.Statement {
 			} else {
 				collab.Flow = flowName
 				collab.FlowDescription = flowDescription
+			}
+			if collab.Step != "" {
+				if _, seen := stepOrderMap[collab.Step]; !seen {
+					stepOrderMap[collab.Step] = nextOrder
+					nextOrder++
+				}
+				collab.StepOrder = stepOrderMap[collab.Step]
 			}
 			stmts = append(stmts, collab)
 		}

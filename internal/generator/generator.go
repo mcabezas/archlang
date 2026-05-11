@@ -69,6 +69,7 @@ type graphEdge struct {
 	flow            string // flow name, empty if not inside a flow block
 	flowDescription string // flow description
 	step            string // step name within a flow
+	stepOrder       int    // order of the step within its flow
 }
 
 type featureDecl struct {
@@ -228,6 +229,7 @@ func wireCollaborations(allDomains map[string]*ast.Architecture, nodes map[strin
 				flow:            s.Flow,
 				flowDescription: s.FlowDescription,
 				step:            s.Step,
+				stepOrder:       s.StepOrder,
 			})
 		}
 	}
@@ -423,7 +425,8 @@ func generateCode(g *builtGraph, packageName string) ([]byte, error) {
 					flowLit += "}"
 				}
 				stepLit := fmt.Sprintf("%q", edge.step)
-				fmt.Fprintf(&buf, "\tg%d.AddCollaboration(%s, %s, %s, %s, %s, %s, %s, %s)\n", i, toGoName(edge.sourceQN), toGoName(edge.targetQN), featureLit, descLit, cardLit, cardByLit, flowLit, stepLit)
+				stepOrderLit := fmt.Sprintf("%d", edge.stepOrder)
+				fmt.Fprintf(&buf, "\tg%d.AddCollaboration(%s, %s, %s, %s, %s, %s, %s, %s, %s)\n", i, toGoName(edge.sourceQN), toGoName(edge.targetQN), featureLit, descLit, cardLit, cardByLit, flowLit, stepLit, stepOrderLit)
 			}
 		}
 		buf.WriteString("\n")

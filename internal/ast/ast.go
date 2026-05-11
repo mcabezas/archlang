@@ -97,7 +97,8 @@ type CollaborationStatement struct {
 	CardinalityBy string // partitioning key for 1:N (e.g. "account-id")
 	Flow            string // flow name, empty if not inside a flow block
 	FlowDescription string // flow description, set from flow block
-	Step            string // step name within a flow, must be unique per flow
+	Step            string // step name within a flow
+	StepOrder       int    // order of the step within its flow, inferred from definition order
 }
 
 func (cs *CollaborationStatement) statementNode()       {}
