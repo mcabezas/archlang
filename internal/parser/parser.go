@@ -281,7 +281,7 @@ func (p *Parser) parseCollaborationBlock(stmt *ast.CollaborationStatement) {
 			// Optional "by <name>"
 			if p.peekTokenIs(token.IDENT) {
 				p.nextToken()
-				if p.curToken.Literal == "by" {
+				if p.curToken.Literal == "by" || p.curToken.Literal == "BY" {
 					if !p.expectPeek(token.IDENT) {
 						return
 					}
