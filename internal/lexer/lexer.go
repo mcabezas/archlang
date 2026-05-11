@@ -49,6 +49,18 @@ func (l *Lexer) NextToken() token.Token {
 		tok = l.newToken(token.LBRACE)
 	case '}':
 		tok = l.newToken(token.RBRACE)
+	case '"':
+		tok.Literal = l.readString('"')
+		tok.Type = token.STRING
+		return tok
+	case '\'':
+		tok.Literal = l.readString('\'')
+		tok.Type = token.STRING
+		return tok
+	case '`':
+		tok.Literal = l.readRawString()
+		tok.Type = token.STRING
+		return tok
 	case '#':
 		l.skipComment()
 		return l.NextToken()
@@ -125,6 +137,32 @@ func (l *Lexer) newToken(tokenType token.TokenType) token.Token {
 		Line:    l.line,
 		Column:  l.column,
 	}
+}
+
+func (l *Lexer) readString(quote byte) string {
+	l.readChar() // consume opening quote
+	position := l.position
+	for l.ch != quote && l.ch != 0 {
+		l.readChar()
+	}
+	s := l.input[position:l.position]
+	if l.ch == quote {
+		l.readChar() // consume closing quote
+	}
+	return s
+}
+
+func (l *Lexer) readRawString() string {
+	l.readChar() // consume opening backtick
+	position := l.position
+	for l.ch != '`' && l.ch != 0 {
+		l.readChar()
+	}
+	s := l.input[position:l.position]
+	if l.ch == '`' {
+		l.readChar() // consume closing backtick
+	}
+	return s
 }
 
 func (l *Lexer) readNumber() string {

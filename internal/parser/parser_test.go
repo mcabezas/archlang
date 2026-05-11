@@ -123,6 +123,107 @@ func TestParseImportWithAlias(t *testing.T) {
 	}
 }
 
+func TestParseFeatureDeclaration(t *testing.T) {
+	input := `feature payments: "Process payment during checkout"`
+
+	arch := parseInput(t, input)
+	assertStatementCount(t, arch, 1)
+
+	feat, ok := arch.Statements[0].(*ast.FeatureStatement)
+	if !ok {
+		t.Fatalf("statements[0] not *ast.FeatureStatement, got %T", arch.Statements[0])
+	}
+	if feat.Name != "payments" {
+		t.Fatalf("Name = %q, want %q", feat.Name, "payments")
+	}
+	if feat.Description != "Process payment during checkout" {
+		t.Fatalf("Description = %q, want %q", feat.Description, "Process payment during checkout")
+	}
+}
+
+func TestParseFeatureWithBacktick(t *testing.T) {
+	input := "feature refunds: `Handle refunds\nincluding partial`"
+
+	arch := parseInput(t, input)
+	assertStatementCount(t, arch, 1)
+
+	feat := arch.Statements[0].(*ast.FeatureStatement)
+	if feat.Name != "refunds" {
+		t.Fatalf("Name = %q, want %q", feat.Name, "refunds")
+	}
+	if feat.Description != "Handle refunds\nincluding partial" {
+		t.Fatalf("Description = %q, want %q", feat.Description, "Handle refunds\nincluding partial")
+	}
+}
+
+func TestParseCollaborationWithFeatures(t *testing.T) {
+	input := `feature payments: "handle payment flow"
+feature refunds: "handle refunds"
+service a
+service b
+collaboration a -> b {
+  feature payments
+  feature refunds
+}`
+
+	arch := parseInput(t, input)
+	assertStatementCount(t, arch, 5)
+
+	collab, ok := arch.Statements[4].(*ast.CollaborationStatement)
+	if !ok {
+		t.Fatalf("statements[4] not *ast.CollaborationStatement, got %T", arch.Statements[4])
+	}
+	if len(collab.Features) != 2 {
+		t.Fatalf("expected 2 features, got %d", len(collab.Features))
+	}
+	if collab.Features[0] != "payments" {
+		t.Fatalf("Features[0] = %q, want %q", collab.Features[0], "payments")
+	}
+	if collab.Features[1] != "refunds" {
+		t.Fatalf("Features[1] = %q, want %q", collab.Features[1], "refunds")
+	}
+}
+
+func TestParseDuplicateCollaborationsWithFeatures(t *testing.T) {
+	input := `feature payments: "pay"
+feature refunds: "refund"
+service a
+service b
+collaboration a -> b {
+  feature payments
+}
+collaboration a -> b {
+  feature refunds
+}`
+
+	arch := parseInput(t, input)
+	assertStatementCount(t, arch, 6)
+
+	collab1 := arch.Statements[4].(*ast.CollaborationStatement)
+	collab2 := arch.Statements[5].(*ast.CollaborationStatement)
+
+	if len(collab1.Features) != 1 || collab1.Features[0] != "payments" {
+		t.Fatalf("collab1 features wrong: %+v", collab1.Features)
+	}
+	if len(collab2.Features) != 1 || collab2.Features[0] != "refunds" {
+		t.Fatalf("collab2 features wrong: %+v", collab2.Features)
+	}
+}
+
+func TestParseCollaborationWithoutFeatures(t *testing.T) {
+	input := `service a
+service b
+collaboration a -> b`
+
+	arch := parseInput(t, input)
+	assertStatementCount(t, arch, 3)
+
+	collab := arch.Statements[2].(*ast.CollaborationStatement)
+	if len(collab.Features) != 0 {
+		t.Fatalf("expected 0 features, got %d", len(collab.Features))
+	}
+}
+
 func TestParseFullArchitecture(t *testing.T) {
 	input := `component redis
 component postgres

@@ -143,6 +143,48 @@ func TestIllegalToken(t *testing.T) {
 	}
 }
 
+func TestFeatureTokens(t *testing.T) {
+	input := `collaboration a -> b {
+  feature payments
+  feature refunds: handle refund flow
+}`
+
+	tests := []struct {
+		expectedType    token.TokenType
+		expectedLiteral string
+	}{
+		{token.COLLABORATION, "collaboration"},
+		{token.IDENT, "a"},
+		{token.ARROW, "->"},
+		{token.IDENT, "b"},
+		{token.LBRACE, "{"},
+		{token.FEATURE, "feature"},
+		{token.IDENT, "payments"},
+		{token.FEATURE, "feature"},
+		{token.IDENT, "refunds"},
+		{token.COLON, ":"},
+		{token.IDENT, "handle"},
+		{token.IDENT, "refund"},
+		{token.IDENT, "flow"},
+		{token.RBRACE, "}"},
+		{token.EOF, ""},
+	}
+
+	l := New(input)
+
+	for i, tt := range tests {
+		tok := l.NextToken()
+		if tok.Type != tt.expectedType {
+			t.Fatalf("tests[%d] - tokentype wrong. expected=%q, got=%q (literal=%q)",
+				i, tt.expectedType, tok.Type, tok.Literal)
+		}
+		if tok.Literal != tt.expectedLiteral {
+			t.Fatalf("tests[%d] - literal wrong. expected=%q, got=%q",
+				i, tt.expectedLiteral, tok.Literal)
+		}
+	}
+}
+
 func TestImportTokens(t *testing.T) {
 	input := `import notifications as noti
 

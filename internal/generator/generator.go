@@ -59,14 +59,29 @@ type graphNode struct {
 	upstreams     []string // qualified names
 }
 
+type graphEdge struct {
+	sourceQN string
+	targetQN string
+	features []string // feature names
+}
+
+type featureDecl struct {
+	name        string
+	description string
+}
+
 // builtGraph is the intermediate representation after building from ASTs.
 type builtGraph struct {
-	nodes map[string]*graphNode
-	order []string // sorted qualified names
+	nodes    map[string]*graphNode
+	order    []string // sorted qualified names
+	edges    []graphEdge
+	features map[string]*featureDecl // name -> declaration
 }
 
 func buildGraph(allDomains map[string]*ast.Architecture) (*builtGraph, []string) {
 	nodes := make(map[string]*graphNode)
+	features := make(map[string]*featureDecl)
+	var edges []graphEdge
 	var errors []string
 
 	// Register components, services, and infra
@@ -119,6 +134,12 @@ func buildGraph(allDomains map[string]*ast.Architecture) (*builtGraph, []string)
 					isInfra:       true,
 					isPublic:      s.Public,
 				}
+			case *ast.FeatureStatement:
+				if _, exists := features[s.Name]; exists {
+					errors = append(errors, fmt.Sprintf("%s: line %d: duplicate feature declaration %q", domain, s.Token.Line, s.Name))
+					continue
+				}
+				features[s.Name] = &featureDecl{name: s.Name, description: s.Description}
 			}
 		}
 	}
@@ -163,6 +184,20 @@ func buildGraph(allDomains map[string]*ast.Architecture) (*builtGraph, []string)
 			if sourceQN != "" && targetQN != "" {
 				nodes[sourceQN].downstreams = append(nodes[sourceQN].downstreams, targetQN)
 				nodes[targetQN].upstreams = append(nodes[targetQN].upstreams, sourceQN)
+
+				// Validate feature references
+				for _, fname := range s.Features {
+					if _, ok := features[fname]; !ok {
+						errors = append(errors, fmt.Sprintf(
+							"%s: line %d: undeclared feature %q", domain, s.Token.Line, fname))
+					}
+				}
+
+				edges = append(edges, graphEdge{
+					sourceQN: sourceQN,
+					targetQN: targetQN,
+					features: s.Features,
+				})
 			}
 		}
 	}
@@ -193,7 +228,7 @@ func buildGraph(allDomains map[string]*ast.Architecture) (*builtGraph, []string)
 	}
 	sort.Strings(order)
 
-	return &builtGraph{nodes: nodes, order: order}, errors
+	return &builtGraph{nodes: nodes, order: order, edges: edges, features: features}, errors
 }
 
 func resolveRef(currentDomain string, ref ast.ComponentRef, aliases map[string]string, line int, nodes map[string]*graphNode) (string, string) {
@@ -339,10 +374,28 @@ func generateCode(g *builtGraph, packageName string) ([]byte, error) {
 		for _, qn := range comp {
 			fmt.Fprintf(&buf, "\tg%d.Register(%q, %s)\n", i, qn, toGoName(qn))
 		}
+		// Emit edges for this connected component
+		compSet := make(map[string]bool)
 		for _, qn := range comp {
-			n := g.nodes[qn]
-			for _, dsQN := range n.downstreams {
-				fmt.Fprintf(&buf, "\tg%d.AddDownstream(%s, %s)\n", i, toGoName(qn), toGoName(dsQN))
+			compSet[qn] = true
+		}
+		for _, edge := range g.edges {
+			if !compSet[edge.sourceQN] {
+				continue
+			}
+			if len(edge.features) == 0 {
+				fmt.Fprintf(&buf, "\tg%d.AddDownstream(%s, %s)\n", i, toGoName(edge.sourceQN), toGoName(edge.targetQN))
+			} else {
+				fmt.Fprintf(&buf, "\tg%d.AddCollaboration(%s, %s, []graph.Feature{\n", i, toGoName(edge.sourceQN), toGoName(edge.targetQN))
+				for _, fname := range edge.features {
+					fd := g.features[fname]
+					if fd != nil && fd.description != "" {
+						fmt.Fprintf(&buf, "\t\t{Name: %q, Description: %q},\n", fname, fd.description)
+					} else {
+						fmt.Fprintf(&buf, "\t\t{Name: %q},\n", fname)
+					}
+				}
+				fmt.Fprintf(&buf, "\t})\n")
 			}
 		}
 		buf.WriteString("\n")

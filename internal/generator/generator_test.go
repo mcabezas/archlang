@@ -72,6 +72,14 @@ func TestGenerate(t *testing.T) {
 		t.Error("missing downstream wiring")
 	}
 
+	// Check collaboration with features
+	if !strings.Contains(code, ".AddCollaboration(") {
+		t.Error("missing collaboration wiring")
+	}
+	if !strings.Contains(code, "graph.Feature{") {
+		t.Error("missing Feature type in generated code")
+	}
+
 	// Check registration
 	if !strings.Contains(code, ".Register(") {
 		t.Error("missing node registration")

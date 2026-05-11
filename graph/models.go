@@ -22,6 +22,17 @@ type Infra struct{ Component }
 type Domain string
 type Org string
 
+type Feature struct {
+	Name        string
+	Description string
+}
+
+type Collaboration struct {
+	Source   Component
+	Target   Component
+	Features []Feature
+}
+
 type Visibility string
 
 const (

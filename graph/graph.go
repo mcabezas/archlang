@@ -1,8 +1,9 @@
 package graph
 
 type Graph struct {
-	nodes  map[string]Component
-	nodeQN map[Component]string
+	nodes          map[string]Component
+	nodeQN         map[Component]string
+	collaborations []Collaboration
 }
 
 func NewGraph() *Graph {
@@ -26,6 +27,22 @@ func (g *Graph) AddDownstream(source, target Component) {
 	tn := target.Base().(*component)
 	sn.downstreams = append(sn.downstreams, target)
 	tn.upstreams = append(tn.upstreams, source)
+}
+
+func (g *Graph) AddCollaboration(source, target Component, features []Feature) {
+	sn := source.Base().(*component)
+	tn := target.Base().(*component)
+	sn.downstreams = append(sn.downstreams, target)
+	tn.upstreams = append(tn.upstreams, source)
+	g.collaborations = append(g.collaborations, Collaboration{
+		Source:   source,
+		Target:   target,
+		Features: features,
+	})
+}
+
+func (g *Graph) Collaborations() []Collaboration {
+	return g.collaborations
 }
 
 func (g *Graph) AllNodes() []Component {

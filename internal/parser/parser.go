@@ -55,6 +55,8 @@ func (p *Parser) parseStatement() ast.Statement {
 		return p.parseInfraStatement(false)
 	case token.COLLABORATION:
 		return p.parseCollaborationStatement()
+	case token.FEATURE:
+		return p.parseFeatureStatement()
 	case token.IDENT:
 		// name.attr = value (attribute assignment)
 		if p.peekTokenIs(token.DOT) {
@@ -200,7 +202,58 @@ func (p *Parser) parseCollaborationStatement() *ast.CollaborationStatement {
 	}
 	stmt.Target = p.parseComponentRef()
 
+	// Optional block with feature references
+	if p.peekTokenIs(token.LBRACE) {
+		p.nextToken() // consume {
+		stmt.Features = p.parseCollaborationFeatures()
+	}
+
 	return stmt
+}
+
+func (p *Parser) parseFeatureStatement() *ast.FeatureStatement {
+	stmt := &ast.FeatureStatement{Token: p.curToken}
+
+	if !p.expectPeek(token.IDENT) {
+		return nil
+	}
+	stmt.Name = p.curToken.Literal
+
+	if !p.expectPeek(token.COLON) {
+		return nil
+	}
+
+	// Description: string literal (", ', or `)
+	if !p.expectPeek(token.STRING) {
+		return nil
+	}
+	stmt.Description = p.curToken.Literal
+
+	return stmt
+}
+
+func (p *Parser) parseCollaborationFeatures() []string {
+	var features []string
+
+	for !p.peekTokenIs(token.RBRACE) && !p.peekTokenIs(token.EOF) {
+		p.nextToken()
+		if p.curToken.Type != token.FEATURE {
+			p.addError("expected feature, got %s at line %d, column %d",
+				p.curToken.Type, p.curToken.Line, p.curToken.Column)
+			return features
+		}
+
+		if !p.expectPeek(token.IDENT) {
+			return features
+		}
+		features = append(features, p.curToken.Literal)
+	}
+
+	if !p.expectPeek(token.RBRACE) {
+		return features
+	}
+
+	return features
 }
 
 func (p *Parser) parseAttributeStatement() *ast.AttributeStatement {

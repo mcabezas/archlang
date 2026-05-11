@@ -3,10 +3,16 @@ import payments
 import delivery
 import notifications as noti
 
+feature checkout: "Process payment during checkout"
+feature refund: "Handle order refunds"
+
 service order-management
 
 collaboration order-management -> users.auth
-collaboration order-management -> payments.payment-processing
+collaboration order-management -> payments.payment-processing {
+  feature checkout
+  feature refund
+}
 collaboration order-management -> delivery.dispatch
 collaboration order-management -> noti.email
 collaboration order-management -> noti.push

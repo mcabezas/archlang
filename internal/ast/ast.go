@@ -78,10 +78,20 @@ type ComponentRef struct {
 	Name    string
 }
 
+type FeatureStatement struct {
+	Token       token.Token
+	Name        string
+	Description string
+}
+
+func (fs *FeatureStatement) statementNode()       {}
+func (fs *FeatureStatement) TokenLiteral() string { return fs.Token.Literal }
+
 type CollaborationStatement struct {
-	Token  token.Token
-	Source ComponentRef
-	Target ComponentRef
+	Token    token.Token
+	Source   ComponentRef
+	Target   ComponentRef
+	Features []string // feature names (references to declared features)
 }
 
 func (cs *CollaborationStatement) statementNode()       {}

@@ -20,6 +20,7 @@ const (
 	INFRA    = "INFRA"
 	PUBLIC   = "PUBLIC"
 	INTERNAL = "INTERNAL"
+	FEATURE  = "FEATURE"
 
 	// Operators
 	ARROW  = "->"
@@ -30,6 +31,7 @@ const (
 
 	// Literals
 	NUMBER = "NUMBER"
+	STRING = "STRING"
 
 	// Delimiters
 	LBRACE = "{"
@@ -53,6 +55,7 @@ var keywords = map[string]TokenType{
 	"infra":         INFRA,
 	"public":        PUBLIC,
 	"internal":      INTERNAL,
+	"feature":       FEATURE,
 }
 
 func LookupIdent(ident string) TokenType {
