@@ -206,12 +206,84 @@ go install ./cmd/archlang
 
 ## Usage
 
+### 1. Define your architecture
+
+Create `.arch` files inside an `architecture/` directory. Organize by domain using folders:
+
+```
+architecture/
+  orgs/
+    myteam/
+      services.arch
+      checkout.arch
+    payments/
+      services.arch
+```
+
+### 2. Generate Go code
+
 ```bash
-# Generate Go code from .arch files
 archlang generate ./architecture --out ./generated --package generated
 ```
 
-The generated code is a standalone Go package. Import it into your service, wire it to any transport layer, and serve.
+This compiles your `.arch` files into a type-safe Go package with all validations enforced.
+
+### 3. Serve it
+
+Create a `main.go` that imports the generated code and starts the built-in HTTP server:
+
+```go
+package main
+
+import (
+	"log"
+	"os"
+
+	"your-module/generated"
+
+	sdk "github.com/mcabezas/archlang/sdk"
+)
+
+func main() {
+	svc := sdk.New(generated.AllGraphs, generated.AllDomainGraphs)
+
+	addr := os.Getenv("ADDR")
+	if addr == "" {
+		addr = ":8080"
+	}
+
+	server := sdk.NewHTTPServer(svc, addr)
+	if err := server.Start(); err != nil {
+		log.Fatal(err)
+	}
+}
+```
+
+The server handles graceful shutdown on `SIGINT`/`SIGTERM` out of the box.
+
+### 4. Browse
+
+- **Architecture Overview** — `http://localhost:8080/diagram`
+- **Feature Diagram** — `http://localhost:8080/diagram?feature=checkout`
+- **Component API** — `http://localhost:8080/api/components/orgs/myteam.order-service`
+
+Diagrams are rendered as interactive Mermaid charts with a dark theme. Feature diagrams include flow and step breakdowns with descriptions.
+
+### Custom transports
+
+The generated code is a standalone Go package. You can build your own transport layer on top of the SDK:
+
+```go
+svc := sdk.New(generated.AllGraphs, generated.AllDomainGraphs)
+
+// Use the SDK directly
+components, _ := svc.ListAll()
+features, _ := svc.ListFeatures()
+component, _ := svc.FindByName("order-service")
+collabs, _ := svc.FindByFlow("purchase")
+```
+
+Wire it to gRPC, MCP, Slack, or any protocol you need.
 
 ## Agents
 
