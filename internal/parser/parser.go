@@ -202,10 +202,10 @@ func (p *Parser) parseCollaborationStatement() *ast.CollaborationStatement {
 	}
 	stmt.Target = p.parseComponentRef()
 
-	// Optional block with feature references
+	// Optional block with one feature + optional description
 	if p.peekTokenIs(token.LBRACE) {
 		p.nextToken() // consume {
-		stmt.Features = p.parseCollaborationFeatures()
+		p.parseCollaborationBlock(stmt)
 	}
 
 	return stmt
@@ -232,28 +232,43 @@ func (p *Parser) parseFeatureStatement() *ast.FeatureStatement {
 	return stmt
 }
 
-func (p *Parser) parseCollaborationFeatures() []string {
-	var features []string
-
+func (p *Parser) parseCollaborationBlock(stmt *ast.CollaborationStatement) {
 	for !p.peekTokenIs(token.RBRACE) && !p.peekTokenIs(token.EOF) {
 		p.nextToken()
-		if p.curToken.Type != token.FEATURE {
-			p.addError("expected feature, got %s at line %d, column %d",
+		switch p.curToken.Type {
+		case token.FEATURE:
+			if stmt.Feature != "" {
+				p.addError("collaboration block can only contain one feature at line %d, column %d",
+					p.curToken.Line, p.curToken.Column)
+				return
+			}
+			if !p.expectPeek(token.IDENT) {
+				return
+			}
+			stmt.Feature = p.curToken.Literal
+		case token.DESCRIPTION:
+			if stmt.Description != "" {
+				p.addError("collaboration block can only contain one description at line %d, column %d",
+					p.curToken.Line, p.curToken.Column)
+				return
+			}
+			if !p.expectPeek(token.COLON) {
+				return
+			}
+			if !p.expectPeek(token.STRING) {
+				return
+			}
+			stmt.Description = p.curToken.Literal
+		default:
+			p.addError("expected feature or description, got %s at line %d, column %d",
 				p.curToken.Type, p.curToken.Line, p.curToken.Column)
-			return features
+			return
 		}
-
-		if !p.expectPeek(token.IDENT) {
-			return features
-		}
-		features = append(features, p.curToken.Literal)
 	}
 
 	if !p.expectPeek(token.RBRACE) {
-		return features
+		return
 	}
-
-	return features
 }
 
 func (p *Parser) parseAttributeStatement() *ast.AttributeStatement {

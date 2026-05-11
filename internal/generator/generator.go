@@ -60,9 +60,10 @@ type graphNode struct {
 }
 
 type graphEdge struct {
-	sourceQN string
-	targetQN string
-	features []string // feature names
+	sourceQN    string
+	targetQN    string
+	feature     string // feature name (empty if none)
+	description string // optional collaboration description
 }
 
 type featureDecl struct {
@@ -185,18 +186,19 @@ func buildGraph(allDomains map[string]*ast.Architecture) (*builtGraph, []string)
 				nodes[sourceQN].downstreams = append(nodes[sourceQN].downstreams, targetQN)
 				nodes[targetQN].upstreams = append(nodes[targetQN].upstreams, sourceQN)
 
-				// Validate feature references
-				for _, fname := range s.Features {
-					if _, ok := features[fname]; !ok {
+				// Validate feature reference
+				if s.Feature != "" {
+					if _, ok := features[s.Feature]; !ok {
 						errors = append(errors, fmt.Sprintf(
-							"%s: line %d: undeclared feature %q", domain, s.Token.Line, fname))
+							"%s: line %d: undeclared feature %q", domain, s.Token.Line, s.Feature))
 					}
 				}
 
 				edges = append(edges, graphEdge{
-					sourceQN: sourceQN,
-					targetQN: targetQN,
-					features: s.Features,
+					sourceQN:    sourceQN,
+					targetQN:    targetQN,
+					feature:     s.Feature,
+					description: s.Description,
 				})
 			}
 		}
@@ -383,19 +385,17 @@ func generateCode(g *builtGraph, packageName string) ([]byte, error) {
 			if !compSet[edge.sourceQN] {
 				continue
 			}
-			if len(edge.features) == 0 {
+			if edge.feature == "" {
 				fmt.Fprintf(&buf, "\tg%d.AddDownstream(%s, %s)\n", i, toGoName(edge.sourceQN), toGoName(edge.targetQN))
 			} else {
-				fmt.Fprintf(&buf, "\tg%d.AddCollaboration(%s, %s, []graph.Feature{\n", i, toGoName(edge.sourceQN), toGoName(edge.targetQN))
-				for _, fname := range edge.features {
-					fd := g.features[fname]
-					if fd != nil && fd.description != "" {
-						fmt.Fprintf(&buf, "\t\t{Name: %q, Description: %q},\n", fname, fd.description)
-					} else {
-						fmt.Fprintf(&buf, "\t\t{Name: %q},\n", fname)
-					}
+				fd := g.features[edge.feature]
+				featureLit := fmt.Sprintf("graph.Feature{Name: %q", edge.feature)
+				if fd != nil && fd.description != "" {
+					featureLit += fmt.Sprintf(", Description: %q", fd.description)
 				}
-				fmt.Fprintf(&buf, "\t})\n")
+				featureLit += "}"
+				descLit := fmt.Sprintf("%q", edge.description)
+				fmt.Fprintf(&buf, "\tg%d.AddCollaboration(%s, %s, %s, %s)\n", i, toGoName(edge.sourceQN), toGoName(edge.targetQN), featureLit, descLit)
 			}
 		}
 		buf.WriteString("\n")

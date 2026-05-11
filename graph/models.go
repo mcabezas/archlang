@@ -28,9 +28,10 @@ type Feature struct {
 }
 
 type Collaboration struct {
-	Source   Component
-	Target   Component
-	Features []Feature
+	Source      Component
+	Target      Component
+	Feature     Feature
+	Description string
 }
 
 type Visibility string

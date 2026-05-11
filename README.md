@@ -59,6 +59,7 @@ collaboration api-gateway -> order-service {
 }
 collaboration order-service -> payment-service {
   feature checkout
+  description: "REST POST /payments with order payload and idempotency key"
 }
 collaboration order-service -> notification-service {
   feature notifications
@@ -76,11 +77,44 @@ This compiles. Every reference is validated. Every cross-org collaboration is ch
 
 **Organizations** — Inferred from `orgs/` folder structure. Cross-org communication requires `public` visibility on both ends. Enforced at compile time.
 
-**Collaborations** — Define how components communicate. Duplicate collaborations between the same pair are allowed — each can carry different features.
+**Collaborations** — Define how components communicate. Each collaboration block carries one feature and an optional description explaining the integration (protocol, payload, sequence — supports Mermaid). Duplicate collaborations between the same pair are allowed — one per feature.
 
 **Features** — Declared with a name and description. Referenced inside collaborations. Trace a feature across the entire graph to see every service involved.
 
 **Visibility** — `public` or `internal`. Only public components can communicate across organizations. The compiler rejects anything else.
+
+## Collaboration Blocks
+
+A collaboration can be plain or carry a feature and a description explaining the integration:
+
+```
+# Plain — just an edge
+collaboration api-gateway -> order-service
+
+# With a feature
+collaboration order-service -> payment-service {
+  feature checkout
+}
+
+# With a feature and a description explaining how the integration works
+collaboration order-service -> payment-service {
+  feature refund
+  description: ```
+  Async event via message queue.
+  Order service publishes a RefundRequested event,
+  payment service consumes and processes it.
+
+  ```mermaid
+  sequenceDiagram
+    order-service->>queue: RefundRequested
+    queue->>payment-service: RefundRequested
+    payment-service-->>queue: RefundProcessed
+  ```
+  ```
+}
+```
+
+Each block carries **one feature** and an optional **description**. To describe multiple features between the same pair, use separate blocks — one per feature. Descriptions support multiline strings (backticks) with Mermaid diagram embedding.
 
 ## How It Works
 

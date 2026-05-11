@@ -156,9 +156,50 @@ func TestParseFeatureWithBacktick(t *testing.T) {
 	}
 }
 
-func TestParseCollaborationWithFeatures(t *testing.T) {
+func TestParseCollaborationWithFeature(t *testing.T) {
 	input := `feature payments: "handle payment flow"
-feature refunds: "handle refunds"
+service a
+service b
+collaboration a -> b {
+  feature payments
+}`
+
+	arch := parseInput(t, input)
+	assertStatementCount(t, arch, 4)
+
+	collab, ok := arch.Statements[3].(*ast.CollaborationStatement)
+	if !ok {
+		t.Fatalf("statements[3] not *ast.CollaborationStatement, got %T", arch.Statements[3])
+	}
+	if collab.Feature != "payments" {
+		t.Fatalf("Feature = %q, want %q", collab.Feature, "payments")
+	}
+}
+
+func TestParseCollaborationWithDescription(t *testing.T) {
+	input := `feature payments: "handle payment flow"
+service a
+service b
+collaboration a -> b {
+  description: "REST POST /payments"
+  feature payments
+}`
+
+	arch := parseInput(t, input)
+	assertStatementCount(t, arch, 4)
+
+	collab := arch.Statements[3].(*ast.CollaborationStatement)
+	if collab.Feature != "payments" {
+		t.Fatalf("Feature = %q, want %q", collab.Feature, "payments")
+	}
+	if collab.Description != "REST POST /payments" {
+		t.Fatalf("Description = %q, want %q", collab.Description, "REST POST /payments")
+	}
+}
+
+func TestParseCollaborationMultipleFeaturesError(t *testing.T) {
+	input := `feature payments: "pay"
+feature refunds: "refund"
 service a
 service b
 collaboration a -> b {
@@ -166,21 +207,23 @@ collaboration a -> b {
   feature refunds
 }`
 
-	arch := parseInput(t, input)
-	assertStatementCount(t, arch, 5)
+	l := lexer.New(input)
+	p := New(l)
+	p.Parse()
 
-	collab, ok := arch.Statements[4].(*ast.CollaborationStatement)
-	if !ok {
-		t.Fatalf("statements[4] not *ast.CollaborationStatement, got %T", arch.Statements[4])
+	if len(p.Errors()) == 0 {
+		t.Fatal("expected error for multiple features in collaboration block, got none")
 	}
-	if len(collab.Features) != 2 {
-		t.Fatalf("expected 2 features, got %d", len(collab.Features))
+
+	found := false
+	for _, err := range p.Errors() {
+		if contains(err, "collaboration block can only contain one feature") {
+			found = true
+			break
+		}
 	}
-	if collab.Features[0] != "payments" {
-		t.Fatalf("Features[0] = %q, want %q", collab.Features[0], "payments")
-	}
-	if collab.Features[1] != "refunds" {
-		t.Fatalf("Features[1] = %q, want %q", collab.Features[1], "refunds")
+	if !found {
+		t.Fatalf("expected error about one feature per block, got %v", p.Errors())
 	}
 }
 
@@ -202,11 +245,11 @@ collaboration a -> b {
 	collab1 := arch.Statements[4].(*ast.CollaborationStatement)
 	collab2 := arch.Statements[5].(*ast.CollaborationStatement)
 
-	if len(collab1.Features) != 1 || collab1.Features[0] != "payments" {
-		t.Fatalf("collab1 features wrong: %+v", collab1.Features)
+	if collab1.Feature != "payments" {
+		t.Fatalf("collab1 feature = %q, want %q", collab1.Feature, "payments")
 	}
-	if len(collab2.Features) != 1 || collab2.Features[0] != "refunds" {
-		t.Fatalf("collab2 features wrong: %+v", collab2.Features)
+	if collab2.Feature != "refunds" {
+		t.Fatalf("collab2 feature = %q, want %q", collab2.Feature, "refunds")
 	}
 }
 
@@ -219,8 +262,11 @@ collaboration a -> b`
 	assertStatementCount(t, arch, 3)
 
 	collab := arch.Statements[2].(*ast.CollaborationStatement)
-	if len(collab.Features) != 0 {
-		t.Fatalf("expected 0 features, got %d", len(collab.Features))
+	if collab.Feature != "" {
+		t.Fatalf("expected empty feature, got %q", collab.Feature)
+	}
+	if collab.Description != "" {
+		t.Fatalf("expected empty description, got %q", collab.Description)
 	}
 }
 

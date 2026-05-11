@@ -88,10 +88,11 @@ func (fs *FeatureStatement) statementNode()       {}
 func (fs *FeatureStatement) TokenLiteral() string { return fs.Token.Literal }
 
 type CollaborationStatement struct {
-	Token    token.Token
-	Source   ComponentRef
-	Target   ComponentRef
-	Features []string // feature names (references to declared features)
+	Token       token.Token
+	Source      ComponentRef
+	Target      ComponentRef
+	Feature     string // feature name (reference to declared feature), empty if none
+	Description string // optional description of how this collaboration works
 }
 
 func (cs *CollaborationStatement) statementNode()       {}

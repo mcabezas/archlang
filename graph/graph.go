@@ -29,15 +29,16 @@ func (g *Graph) AddDownstream(source, target Component) {
 	tn.upstreams = append(tn.upstreams, source)
 }
 
-func (g *Graph) AddCollaboration(source, target Component, features []Feature) {
+func (g *Graph) AddCollaboration(source, target Component, feature Feature, description string) {
 	sn := source.Base().(*component)
 	tn := target.Base().(*component)
 	sn.downstreams = append(sn.downstreams, target)
 	tn.upstreams = append(tn.upstreams, source)
 	g.collaborations = append(g.collaborations, Collaboration{
-		Source:   source,
-		Target:   target,
-		Features: features,
+		Source:      source,
+		Target:      target,
+		Feature:     feature,
+		Description: description,
 	})
 }
 
