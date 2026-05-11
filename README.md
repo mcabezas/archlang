@@ -57,8 +57,7 @@ service payment-service
 public service notification-service
 
 feature checkout: "Process order payments at checkout" {
-  flow purchase {
-    description: "End-to-end purchase journey"
+  flow purchase "End-to-end purchase journey" {
     collaboration api-gateway -> order-service {
       description: "REST POST /orders"
       step: initiate
@@ -140,8 +139,7 @@ Group collaborations into named flows with optional descriptions and steps:
 
 ```
 feature checkout: "Process order payments" {
-  flow purchase {
-    description: "End-to-end purchase journey"
+  flow purchase "End-to-end purchase journey" {
     collaboration api-gateway -> order-service {
       description: "REST POST /orders"
       step: initiate
@@ -154,11 +152,15 @@ feature checkout: "Process order payments" {
 }
 ```
 
+Flow descriptions can be inline (`flow name "description" { ... }`) or block-level (`description: "..."` inside the block).
+
+Steps are ordered automatically — the compiler infers `sort_order` from their position in the flow definition.
+
 Flows can also be used standalone (outside a feature block) or inline inside a collaboration:
 
 ```
 # Standalone flow block
-flow purchase {
+flow purchase "End-to-end purchase journey" {
   collaboration a -> b {
     feature checkout
     step: initiate
