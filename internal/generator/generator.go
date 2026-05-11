@@ -84,10 +84,24 @@ type builtGraph struct {
 func buildGraph(allDomains map[string]*ast.Architecture) (*builtGraph, []string) {
 	nodes := make(map[string]*graphNode)
 	features := make(map[string]*featureDecl)
-	var edges []graphEdge
 	var errors []string
 
-	// Register components, services, and infra
+	errors = append(errors, registerDeclarations(allDomains, nodes, features)...)
+	edges, wireErrs := wireCollaborations(allDomains, nodes, features)
+	errors = append(errors, wireErrs...)
+	errors = append(errors, validateCrossOrgVisibility(nodes)...)
+
+	order := make([]string, 0, len(nodes))
+	for qn := range nodes {
+		order = append(order, qn)
+	}
+	sort.Strings(order)
+
+	return &builtGraph{nodes: nodes, order: order, edges: edges, features: features}, errors
+}
+
+func registerDeclarations(allDomains map[string]*ast.Architecture, nodes map[string]*graphNode, features map[string]*featureDecl) []string {
+	var errors []string
 	for domain, arch := range allDomains {
 		org := inferOrg(domain)
 		for _, stmt := range arch.Statements {
@@ -146,20 +160,18 @@ func buildGraph(allDomains map[string]*ast.Architecture) (*builtGraph, []string)
 			}
 		}
 	}
+	return errors
+}
 
-	// Validate imports and wire collaborations
+func wireCollaborations(allDomains map[string]*ast.Architecture, nodes map[string]*graphNode, features map[string]*featureDecl) ([]graphEdge, []string) {
+	var edges []graphEdge
+	var errors []string
+
 	for domain, arch := range allDomains {
 		imports := collectImports(arch)
 
 		for _, imp := range imports {
-			found := false
-			for other := range allDomains {
-				if other == imp.Domain {
-					found = true
-					break
-				}
-			}
-			if !found {
+			if _, exists := allDomains[imp.Domain]; !exists {
 				errors = append(errors, fmt.Sprintf(
 					"%s: line %d: imported domain %q does not exist",
 					domain, imp.Token.Line, imp.Domain))
@@ -184,52 +196,47 @@ func buildGraph(allDomains map[string]*ast.Architecture) (*builtGraph, []string)
 				errors = append(errors, fmt.Sprintf("%s: %s", domain, err))
 			}
 
-			if sourceQN != "" && targetQN != "" {
-				nodes[sourceQN].downstreams = append(nodes[sourceQN].downstreams, targetQN)
-				nodes[targetQN].upstreams = append(nodes[targetQN].upstreams, sourceQN)
-
-				// Validate feature reference
-				if s.Feature != "" {
-					if _, ok := features[s.Feature]; !ok {
-						errors = append(errors, fmt.Sprintf(
-							"%s: line %d: undeclared feature %q", domain, s.Token.Line, s.Feature))
-					}
-				}
-
-				edges = append(edges, graphEdge{
-					sourceQN:      sourceQN,
-					targetQN:      targetQN,
-					feature:       s.Feature,
-					description:   s.Description,
-					cardinality:   s.Cardinality,
-					cardinalityBy: s.CardinalityBy,
-				})
+			if sourceQN == "" || targetQN == "" {
+				continue
 			}
+
+			nodes[sourceQN].downstreams = append(nodes[sourceQN].downstreams, targetQN)
+			nodes[targetQN].upstreams = append(nodes[targetQN].upstreams, sourceQN)
+
+			if s.Feature != "" {
+				if _, ok := features[s.Feature]; !ok {
+					errors = append(errors, fmt.Sprintf(
+						"%s: line %d: undeclared feature %q", domain, s.Token.Line, s.Feature))
+				}
+			}
+
+			edges = append(edges, graphEdge{
+				sourceQN:      sourceQN,
+				targetQN:      targetQN,
+				feature:       s.Feature,
+				description:   s.Description,
+				cardinality:   s.Cardinality,
+				cardinalityBy: s.CardinalityBy,
+			})
 		}
 	}
 
-	// Validate cross-org collaborations: target must be public to receive cross-org traffic
+	return edges, errors
+}
+
+func validateCrossOrgVisibility(nodes map[string]*graphNode) []string {
+	var errors []string
 	for _, n := range nodes {
 		for _, dsQN := range n.downstreams {
 			target := nodes[dsQN]
-			if n.org != "" && target.org != "" && n.org != target.org {
-				if !target.isPublic {
-					errors = append(errors, fmt.Sprintf(
-						"%s: %q is not public — only public components can receive calls across organizations (%s -> %s)",
-						target.domain, target.name, n.org, target.org))
-				}
+			if n.org != "" && target.org != "" && n.org != target.org && !target.isPublic {
+				errors = append(errors, fmt.Sprintf(
+					"%s: %q is not public — only public components can receive calls across organizations (%s -> %s)",
+					target.domain, target.name, n.org, target.org))
 			}
 		}
 	}
-
-	// Sort for deterministic output
-	order := make([]string, 0, len(nodes))
-	for qn := range nodes {
-		order = append(order, qn)
-	}
-	sort.Strings(order)
-
-	return &builtGraph{nodes: nodes, order: order, edges: edges, features: features}, errors
+	return errors
 }
 
 func resolveRef(currentDomain string, ref ast.ComponentRef, aliases map[string]string, line int, nodes map[string]*graphNode) (string, string) {
