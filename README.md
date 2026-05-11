@@ -1,5 +1,10 @@
 # ArchLang
 
+[![Go](https://img.shields.io/badge/Go-1.24+-00ADD8?style=flat&logo=go&logoColor=white)](https://go.dev)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Go Report Card](https://goreportcard.com/badge/github.com/mcabezas/archlang)](https://goreportcard.com/report/github.com/mcabezas/archlang)
+[![CI](https://github.com/mcabezas/archlang/actions/workflows/ci.yml/badge.svg)](https://github.com/mcabezas/archlang/actions/workflows/ci.yml)
+
 **Architecture documentation that never lies.**
 
 ArchLang is a programming language for defining solution architectures. It compiles `.arch` files into a typed, queryable knowledge graph — serving architecture facts to humans and AI agents through multiple protocols.
