@@ -197,6 +197,71 @@ collaboration a -> b {
 	}
 }
 
+func TestParseCollaborationWithInlineDescription(t *testing.T) {
+	input := `feature payments: "handle payment flow"
+service a
+service b
+collaboration a -> b {
+  feature payments: "REST POST /payments with order payload"
+}`
+
+	arch := parseInput(t, input)
+	assertStatementCount(t, arch, 4)
+
+	collab := arch.Statements[3].(*ast.CollaborationStatement)
+	if collab.Feature != "payments" {
+		t.Fatalf("Feature = %q, want %q", collab.Feature, "payments")
+	}
+	if collab.Description != "REST POST /payments with order payload" {
+		t.Fatalf("Description = %q, want %q", collab.Description, "REST POST /payments with order payload")
+	}
+}
+
+func TestParseCollaborationWithCardinality(t *testing.T) {
+	input := `feature payments: "pay"
+service a
+service b
+collaboration a -> b {
+  feature payments
+  cardinality 1:1
+}`
+
+	arch := parseInput(t, input)
+	assertStatementCount(t, arch, 4)
+
+	collab := arch.Statements[3].(*ast.CollaborationStatement)
+	if collab.Feature != "payments" {
+		t.Fatalf("Feature = %q, want %q", collab.Feature, "payments")
+	}
+	if collab.Cardinality != "1:1" {
+		t.Fatalf("Cardinality = %q, want %q", collab.Cardinality, "1:1")
+	}
+}
+
+func TestParseCollaborationWithCardinalityOneToMany(t *testing.T) {
+	input := `feature events: "publish events"
+service a
+service b
+collaboration a -> b {
+  feature events: "Publishes order events to multiple consumers"
+  cardinality 1:N
+}`
+
+	arch := parseInput(t, input)
+	assertStatementCount(t, arch, 4)
+
+	collab := arch.Statements[3].(*ast.CollaborationStatement)
+	if collab.Feature != "events" {
+		t.Fatalf("Feature = %q, want %q", collab.Feature, "events")
+	}
+	if collab.Description != "Publishes order events to multiple consumers" {
+		t.Fatalf("Description = %q, want %q", collab.Description, "Publishes order events to multiple consumers")
+	}
+	if collab.Cardinality != "1:N" {
+		t.Fatalf("Cardinality = %q, want %q", collab.Cardinality, "1:N")
+	}
+}
+
 func TestParseCollaborationMultipleFeaturesError(t *testing.T) {
 	input := `feature payments: "pay"
 feature refunds: "refund"

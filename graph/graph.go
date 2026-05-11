@@ -29,7 +29,7 @@ func (g *Graph) AddDownstream(source, target Component) {
 	tn.upstreams = append(tn.upstreams, source)
 }
 
-func (g *Graph) AddCollaboration(source, target Component, feature Feature, description string) {
+func (g *Graph) AddCollaboration(source, target Component, feature Feature, description string, cardinality string) {
 	sn := source.Base().(*component)
 	tn := target.Base().(*component)
 	sn.downstreams = append(sn.downstreams, target)
@@ -39,6 +39,7 @@ func (g *Graph) AddCollaboration(source, target Component, feature Feature, desc
 		Target:      target,
 		Feature:     feature,
 		Description: description,
+		Cardinality: cardinality,
 	})
 }
 

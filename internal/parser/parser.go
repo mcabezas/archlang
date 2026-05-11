@@ -246,6 +246,14 @@ func (p *Parser) parseCollaborationBlock(stmt *ast.CollaborationStatement) {
 				return
 			}
 			stmt.Feature = p.curToken.Literal
+			// Optional inline description: feature name: "description"
+			if p.peekTokenIs(token.COLON) {
+				p.nextToken() // consume :
+				if !p.expectPeek(token.STRING) {
+					return
+				}
+				stmt.Description = p.curToken.Literal
+			}
 		case token.DESCRIPTION:
 			if stmt.Description != "" {
 				p.addError("collaboration block can only contain one description at line %d, column %d",
@@ -259,8 +267,28 @@ func (p *Parser) parseCollaborationBlock(stmt *ast.CollaborationStatement) {
 				return
 			}
 			stmt.Description = p.curToken.Literal
+		case token.CARDINALITY:
+			if stmt.Cardinality != "" {
+				p.addError("collaboration block can only contain one cardinality at line %d, column %d",
+					p.curToken.Line, p.curToken.Column)
+				return
+			}
+			if !p.expectPeek(token.NUMBER) {
+				return
+			}
+			left := p.curToken.Literal
+			if !p.expectPeek(token.COLON) {
+				return
+			}
+			if !p.peekTokenIs(token.NUMBER) && !p.peekTokenIs(token.IDENT) {
+				p.addError("expected cardinality value (e.g. 1:1 or 1:N) at line %d, column %d",
+					p.peekToken.Line, p.peekToken.Column)
+				return
+			}
+			p.nextToken()
+			stmt.Cardinality = left + ":" + p.curToken.Literal
 		default:
-			p.addError("expected feature or description, got %s at line %d, column %d",
+			p.addError("expected feature, description, or cardinality, got %s at line %d, column %d",
 				p.curToken.Type, p.curToken.Line, p.curToken.Column)
 			return
 		}

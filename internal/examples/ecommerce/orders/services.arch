@@ -10,12 +10,12 @@ service order-management
 
 collaboration order-management -> users.auth
 collaboration order-management -> payments.payment-processing {
-  feature checkout
-  description: "Synchronous REST POST /payments with order payload"
+  feature checkout: "Synchronous REST POST /payments with order payload"
+  cardinality 1:1
 }
 collaboration order-management -> payments.payment-processing {
-  feature refund
-  description: "Async event via message queue for refund processing"
+  feature refund: "Async event via message queue for refund processing"
+  cardinality 1:1
 }
 collaboration order-management -> delivery.dispatch
 collaboration order-management -> noti.email

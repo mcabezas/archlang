@@ -32,6 +32,7 @@ type Collaboration struct {
 	Target      Component
 	Feature     Feature
 	Description string
+	Cardinality string
 }
 
 type Visibility string

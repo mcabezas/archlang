@@ -64,6 +64,44 @@ func (e *documentationEngine) ListAllDomains() ([]graph.Component, error) {
 	return all, nil
 }
 
+func (e *documentationEngine) ListFeatures() ([]graph.Feature, error) {
+	seen := make(map[string]bool)
+	var features []graph.Feature
+	for _, g := range e.graphs {
+		for _, c := range g.Collaborations() {
+			if c.Feature.Name != "" && !seen[c.Feature.Name] {
+				seen[c.Feature.Name] = true
+				features = append(features, c.Feature)
+			}
+		}
+	}
+	return features, nil
+}
+
+func (e *documentationEngine) FindByFeature(name string) ([]graph.Component, error) {
+	seen := make(map[string]bool)
+	var components []graph.Component
+	for _, g := range e.graphs {
+		for _, c := range g.Collaborations() {
+			if c.Feature.Name != name {
+				continue
+			}
+			if sn := g.QualifiedNameOf(c.Source); sn != "" && !seen[sn] {
+				seen[sn] = true
+				components = append(components, c.Source)
+			}
+			if tn := g.QualifiedNameOf(c.Target); tn != "" && !seen[tn] {
+				seen[tn] = true
+				components = append(components, c.Target)
+			}
+		}
+	}
+	if len(components) == 0 {
+		return nil, ErrNotFound
+	}
+	return components, nil
+}
+
 func collectLevels(root graph.Component, levels int, neighbors func(graph.Component) []graph.Component) []graph.Component {
 	if levels <= 0 {
 		return neighbors(root)

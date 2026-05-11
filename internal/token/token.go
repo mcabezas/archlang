@@ -22,6 +22,7 @@ const (
 	INTERNAL = "INTERNAL"
 	FEATURE     = "FEATURE"
 	DESCRIPTION = "DESCRIPTION"
+	CARDINALITY = "CARDINALITY"
 
 	// Operators
 	ARROW  = "->"
@@ -58,6 +59,7 @@ var keywords = map[string]TokenType{
 	"internal":      INTERNAL,
 	"feature":       FEATURE,
 	"description":   DESCRIPTION,
+	"cardinality":   CARDINALITY,
 }
 
 func LookupIdent(ident string) TokenType {

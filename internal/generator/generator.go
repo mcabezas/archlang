@@ -64,6 +64,7 @@ type graphEdge struct {
 	targetQN    string
 	feature     string // feature name (empty if none)
 	description string // optional collaboration description
+	cardinality string // "1:1" or "1:N", empty if not specified
 }
 
 type featureDecl struct {
@@ -199,6 +200,7 @@ func buildGraph(allDomains map[string]*ast.Architecture) (*builtGraph, []string)
 					targetQN:    targetQN,
 					feature:     s.Feature,
 					description: s.Description,
+					cardinality: s.Cardinality,
 				})
 			}
 		}
@@ -390,7 +392,8 @@ func generateCode(g *builtGraph, packageName string) ([]byte, error) {
 				}
 				featureLit += "}"
 				descLit := fmt.Sprintf("%q", edge.description)
-				fmt.Fprintf(&buf, "\tg%d.AddCollaboration(%s, %s, %s, %s)\n", i, toGoName(edge.sourceQN), toGoName(edge.targetQN), featureLit, descLit)
+				cardLit := fmt.Sprintf("%q", edge.cardinality)
+				fmt.Fprintf(&buf, "\tg%d.AddCollaboration(%s, %s, %s, %s, %s)\n", i, toGoName(edge.sourceQN), toGoName(edge.targetQN), featureLit, descLit, cardLit)
 			}
 		}
 		buf.WriteString("\n")
