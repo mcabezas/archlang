@@ -28,7 +28,7 @@ func (d *mermaidDrawer) draw(components []graph.Component) string {
 		}
 	}
 
-	return wrapHTML("Architecture", "", sb.String())
+	return wrapHTML("Architecture Overview", "", sb.String())
 }
 
 func (d *mermaidDrawer) drawFeature(components []graph.Component, feature string) string {
