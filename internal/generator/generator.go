@@ -355,6 +355,72 @@ func generateCode(g *builtGraph, packageName string) ([]byte, error) {
 		fmt.Fprintf(&buf, "g%d", i)
 	}
 	buf.WriteString("}\n")
+	buf.WriteString("}()\n\n")
+
+	// Domain-level variables
+	for _, d := range domainNames {
+		varName := "Domain" + toGoName(d)
+		domainConst := toGoName(d)
+		opts := fmt.Sprintf("graph.WithName(%q), graph.WithDomain(%s)", d, domainConst)
+		// Infer org from any node in this domain
+		for _, qn := range g.order {
+			if g.nodes[qn].domain == d && g.nodes[qn].org != "" {
+				opts += fmt.Sprintf(", graph.WithOrg(%s)", toGoName(g.nodes[qn].org))
+				break
+			}
+		}
+		fmt.Fprintf(&buf, "var %s = graph.NewComponent(%s)\n", varName, opts)
+	}
+	buf.WriteString("\n")
+
+	// Build domain-level edges (cross-domain connections)
+	type domainEdge struct{ from, to string }
+	domainEdgeSet := make(map[domainEdge]bool)
+	for _, qn := range g.order {
+		n := g.nodes[qn]
+		for _, dsQN := range n.downstreams {
+			target := g.nodes[dsQN]
+			if n.domain != target.domain {
+				domainEdgeSet[domainEdge{n.domain, target.domain}] = true
+			}
+		}
+	}
+
+	// Partition domains into connected components
+	domainGraph := &builtGraph{
+		nodes: make(map[string]*graphNode),
+		order: domainNames,
+	}
+	for _, d := range domainNames {
+		domainGraph.nodes[d] = &graphNode{qualifiedName: d, name: d, domain: d}
+	}
+	for edge := range domainEdgeSet {
+		domainGraph.nodes[edge.from].downstreams = append(domainGraph.nodes[edge.from].downstreams, edge.to)
+	}
+	domainComponents := connectedComponents(domainGraph)
+
+	// AllDomainGraphs
+	buf.WriteString("var AllDomainGraphs = func() []*graph.Graph {\n")
+	for i, comp := range domainComponents {
+		fmt.Fprintf(&buf, "\td%d := graph.NewGraph()\n", i)
+		for _, d := range comp {
+			fmt.Fprintf(&buf, "\td%d.Register(%q, Domain%s)\n", i, d, toGoName(d))
+		}
+		for _, d := range comp {
+			for _, ds := range domainGraph.nodes[d].downstreams {
+				fmt.Fprintf(&buf, "\td%d.AddDownstream(Domain%s, Domain%s)\n", i, toGoName(d), toGoName(ds))
+			}
+		}
+		buf.WriteString("\n")
+	}
+	buf.WriteString("\treturn []*graph.Graph{")
+	for i := range domainComponents {
+		if i > 0 {
+			buf.WriteString(", ")
+		}
+		fmt.Fprintf(&buf, "d%d", i)
+	}
+	buf.WriteString("}\n")
 	buf.WriteString("}()\n")
 
 	return format.Source(buf.Bytes())

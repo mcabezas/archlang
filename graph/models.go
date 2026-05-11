@@ -8,6 +8,7 @@ type Component interface {
 	Downstreams() []Component
 	Upstreams() []Component
 	Domain() Domain
+	Org() Org
 	Visibility() Visibility
 	Base() Component
 }
