@@ -204,19 +204,14 @@ func buildGraph(allDomains map[string]*ast.Architecture) (*builtGraph, []string)
 		}
 	}
 
-	// Validate cross-org collaborations: both ends must be public
+	// Validate cross-org collaborations: target must be public to receive cross-org traffic
 	for _, n := range nodes {
 		for _, dsQN := range n.downstreams {
 			target := nodes[dsQN]
 			if n.org != "" && target.org != "" && n.org != target.org {
-				if !n.isPublic {
-					errors = append(errors, fmt.Sprintf(
-						"%s: %q is not public — only public components can communicate across organizations (%s -> %s)",
-						n.domain, n.name, n.org, target.org))
-				}
 				if !target.isPublic {
 					errors = append(errors, fmt.Sprintf(
-						"%s: %q is not public — only public components can communicate across organizations (%s -> %s)",
+						"%s: %q is not public — only public components can receive calls across organizations (%s -> %s)",
 						target.domain, target.name, n.org, target.org))
 				}
 			}

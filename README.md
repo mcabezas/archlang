@@ -69,19 +69,19 @@ collaboration notification-service -> orgs/acme.email-provider {
 }
 ```
 
-This compiles. Every reference is validated. Every cross-org collaboration is checked for public visibility. The `notifications` feature can be traced from `order-service` all the way to `acme`.
+This compiles. Every reference is validated. Cross-org targets are checked for public visibility. The `notifications` feature can be traced from `order-service` all the way to `acme`.
 
 ## Key Concepts
 
 **Components, Services & Infra** — Define what exists in your architecture.
 
-**Organizations** — Inferred from `orgs/` folder structure. Cross-org communication requires `public` visibility on both ends. Enforced at compile time.
+**Organizations** — Inferred from `orgs/` folder structure. Components that receive cross-org calls must be `public`. Enforced at compile time.
 
 **Collaborations** — Define how components communicate. Each collaboration block carries one feature and an optional description explaining the integration (protocol, payload, sequence — supports Mermaid). Duplicate collaborations between the same pair are allowed — one per feature.
 
 **Features** — Declared with a name and description. Referenced inside collaborations. Trace a feature across the entire graph to see every service involved.
 
-**Visibility** — `public` or `internal`. Only public components can communicate across organizations. The compiler rejects anything else.
+**Visibility** — `public` or `internal`. Only public components can receive calls from other organizations. A service doesn't need to be public to call external services — only the target must be public. The compiler rejects anything else.
 
 ## Collaboration Blocks
 
