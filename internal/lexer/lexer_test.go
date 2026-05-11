@@ -165,7 +165,7 @@ func TestFeatureTokens(t *testing.T) {
 		{token.COLON, ":"},
 		{token.IDENT, "handle"},
 		{token.IDENT, "refund"},
-		{token.IDENT, "flow"},
+		{token.FLOW, "flow"},
 		{token.RBRACE, "}"},
 		{token.EOF, ""},
 	}

@@ -66,6 +66,9 @@ type graphEdge struct {
 	description   string // optional collaboration description
 	cardinality   string // "1:1" or "1:N", empty if not specified
 	cardinalityBy string // partitioning key for 1:N
+	flow            string // flow name, empty if not inside a flow block
+	flowDescription string // flow description
+	step            string // step name within a flow
 }
 
 type featureDecl struct {
@@ -210,6 +213,11 @@ func wireCollaborations(allDomains map[string]*ast.Architecture, nodes map[strin
 				}
 			}
 
+			if s.Step != "" && s.Flow == "" {
+				errors = append(errors, fmt.Sprintf(
+					"%s: line %d: step %q requires a flow", domain, s.Token.Line, s.Step))
+			}
+
 			edges = append(edges, graphEdge{
 				sourceQN:      sourceQN,
 				targetQN:      targetQN,
@@ -217,6 +225,9 @@ func wireCollaborations(allDomains map[string]*ast.Architecture, nodes map[strin
 				description:   s.Description,
 				cardinality:   s.Cardinality,
 				cardinalityBy: s.CardinalityBy,
+				flow:            s.Flow,
+				flowDescription: s.FlowDescription,
+				step:            s.Step,
 			})
 		}
 	}
@@ -403,7 +414,16 @@ func generateCode(g *builtGraph, packageName string) ([]byte, error) {
 				descLit := fmt.Sprintf("%q", edge.description)
 				cardLit := fmt.Sprintf("%q", edge.cardinality)
 				cardByLit := fmt.Sprintf("%q", edge.cardinalityBy)
-				fmt.Fprintf(&buf, "\tg%d.AddCollaboration(%s, %s, %s, %s, %s, %s)\n", i, toGoName(edge.sourceQN), toGoName(edge.targetQN), featureLit, descLit, cardLit, cardByLit)
+				flowLit := "graph.Flow{}"
+				if edge.flow != "" {
+					flowLit = fmt.Sprintf("graph.Flow{Name: %q", edge.flow)
+					if edge.flowDescription != "" {
+						flowLit += fmt.Sprintf(", Description: %q", edge.flowDescription)
+					}
+					flowLit += "}"
+				}
+				stepLit := fmt.Sprintf("%q", edge.step)
+				fmt.Fprintf(&buf, "\tg%d.AddCollaboration(%s, %s, %s, %s, %s, %s, %s, %s)\n", i, toGoName(edge.sourceQN), toGoName(edge.targetQN), featureLit, descLit, cardLit, cardByLit, flowLit, stepLit)
 			}
 		}
 		buf.WriteString("\n")

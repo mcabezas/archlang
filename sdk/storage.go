@@ -37,4 +37,6 @@ type Storage interface {
 	ListAllDomains() ([]graph.Component, error)
 	ListFeatures() ([]graph.Feature, error)
 	FindByFeature(name string) ([]graph.Component, error)
+	ListFlows() ([]graph.Flow, error)
+	FindByFlow(name string) ([]graph.Collaboration, error)
 }

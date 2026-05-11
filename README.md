@@ -43,37 +43,45 @@ ArchLang is what happens when you apply the same rigor we already use for code a
 
 ArchLang treats architecture like code:
 
-- **Write it** — Human-readable `.arch` files define components, services, collaborations, and features
+- **Write it** — Human-readable `.arch` files define components, services, collaborations, features, flows, and steps
 - **Compile it** — The compiler validates everything at build time. Undeclared references, cross-org visibility violations, and missing imports are compile errors — not runtime surprises
 - **Query it** — The compiled graph is served through REST, gRPC, MCP, and Slack. Same question, same answer, every time
-- **Trace it** — Features are first-class citizens. Trace a single feature across every collaboration in your architecture
+- **Trace it** — Features, flows, and steps are first-class citizens. Trace a business capability across every collaboration in your architecture
 
 ```
 import orgs/acme
-
-feature checkout: "Process order payments at checkout"
-feature notifications: "Send transactional notifications"
 
 public service api-gateway
 service order-service
 service payment-service
 public service notification-service
 
-collaboration api-gateway -> order-service {
-  feature checkout
+feature checkout: "Process order payments at checkout" {
+  flow purchase {
+    description: "End-to-end purchase journey"
+    collaboration api-gateway -> order-service {
+      description: "REST POST /orders"
+      step: initiate
+    }
+    collaboration order-service -> payment-service {
+      description: "REST POST /payments with order payload and idempotency key"
+      step: pay
+    }
+  }
 }
-collaboration order-service -> payment-service {
-  feature checkout: "REST POST /payments with order payload and idempotency key"
-}
-collaboration order-service -> notification-service {
-  feature notifications
-}
-collaboration notification-service -> orgs/acme.email-provider {
-  feature notifications
+
+feature notifications: "Send transactional notifications" {
+  collaboration order-service -> notification-service {
+    description: "Publishes order events"
+    cardinality: one to many by event_type
+  }
+  collaboration notification-service -> orgs/acme.email-provider {
+    description: "SMTP relay"
+  }
 }
 ```
 
-This compiles. Every reference is validated. Cross-org targets are checked for public visibility. The `notifications` feature can be traced from `order-service` all the way to `acme`.
+This compiles. Every reference is validated. Cross-org targets are checked for public visibility. Features, flows, and steps are traced across the entire graph.
 
 ## Key Concepts
 
@@ -81,33 +89,91 @@ This compiles. Every reference is validated. Cross-org targets are checked for p
 
 **Organizations** — Inferred from `orgs/` folder structure. Components that receive cross-org calls must be `public`. Enforced at compile time.
 
-**Collaborations** — Define how components communicate. Each collaboration block carries one feature (with an optional inline description) and an optional cardinality (defaults to `1:1`, specify `1:N` or `one to many` when needed). Duplicate collaborations between the same pair are allowed — one per feature.
+**Collaborations** — Define how components communicate. Each collaboration can carry a feature, description, cardinality, flow, and step. Duplicate collaborations between the same pair are allowed — one per feature.
 
-**Features** — Declared with a name and description. Referenced inside collaborations. Trace a feature across the entire graph to see every service involved.
+**Features** — Declared with a name and description. Can be standalone or wrap a block of collaborations. Trace a feature across the entire graph to see every service involved.
+
+**Flows** — Group collaborations into named sequences (e.g. `flow purchase { ... }`). Each flow can have a description. Collaborations inside a flow block are automatically tagged.
+
+**Steps** — Label a phase within a flow (e.g. `step: initiate`). Multiple collaborations can share the same step. Steps require a flow.
 
 **Visibility** — `public` or `internal`. Only public components can receive calls from other organizations. A service doesn't need to be public to call external services — only the target must be public. The compiler rejects anything else.
 
-## Collaboration Blocks
+## Syntax
 
-A collaboration can be plain or carry a feature and a description explaining the integration:
+### Collaborations
+
+A collaboration can be plain or carry metadata:
 
 ```
 # Plain — just an edge
 collaboration api-gateway -> order-service
 
-# With a feature
+# With inline feature and description
 collaboration order-service -> payment-service {
-  feature checkout
-}
-
-# With a feature, description, and cardinality (1:N)
-collaboration order-service -> notification-service {
-  feature order-events: "Publishes order events to multiple consumers"
-  cardinality: one to many
+  feature checkout: "REST POST /payments"
+  cardinality: one to many by tenant_id
 }
 ```
 
-Each block carries **one feature** (with an optional inline description) and an optional **cardinality**. Cardinality defaults to `1:1` — only specify it for `1:N` (or `one to many`). To describe multiple features between the same pair, use separate blocks — one per feature.
+### Feature Blocks
+
+Wrap collaborations in a feature block — all collaborations inside inherit the feature automatically:
+
+```
+feature checkout: "Process order payments" {
+  collaboration api-gateway -> order-service {
+    description: "REST POST /orders"
+  }
+  collaboration order-service -> payment-service {
+    description: "REST POST /payments"
+    cardinality: 1:N by tenant_id
+  }
+}
+```
+
+Using inline `feature` inside a feature block is a compile error.
+
+### Flow Blocks
+
+Group collaborations into named flows with optional descriptions and steps:
+
+```
+feature checkout: "Process order payments" {
+  flow purchase {
+    description: "End-to-end purchase journey"
+    collaboration api-gateway -> order-service {
+      description: "REST POST /orders"
+      step: initiate
+    }
+    collaboration order-service -> payment-service {
+      description: "REST POST /payments"
+      step: pay
+    }
+  }
+}
+```
+
+Flows can also be used standalone (outside a feature block) or inline inside a collaboration:
+
+```
+# Standalone flow block
+flow purchase {
+  collaboration a -> b {
+    feature checkout
+    step: initiate
+  }
+}
+
+# Inline flow inside a collaboration
+collaboration a -> b {
+  feature checkout
+  flow purchase
+  step: initiate
+}
+```
+
+Using inline `flow` inside a flow block is a compile error. Steps require a flow.
 
 ## How It Works
 

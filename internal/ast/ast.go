@@ -88,13 +88,16 @@ func (fs *FeatureStatement) statementNode()       {}
 func (fs *FeatureStatement) TokenLiteral() string { return fs.Token.Literal }
 
 type CollaborationStatement struct {
-	Token       token.Token
-	Source      ComponentRef
-	Target      ComponentRef
-	Feature     string // feature name (reference to declared feature), empty if none
-	Description string // optional description of how this collaboration works
+	Token         token.Token
+	Source        ComponentRef
+	Target        ComponentRef
+	Feature       string // feature name (reference to declared feature), empty if none
+	Description   string // optional description of how this collaboration works
 	Cardinality   string // "1:1" or "1:N", empty if not specified
 	CardinalityBy string // partitioning key for 1:N (e.g. "account-id")
+	Flow            string // flow name, empty if not inside a flow block
+	FlowDescription string // flow description, set from flow block
+	Step            string // step name within a flow, must be unique per flow
 }
 
 func (cs *CollaborationStatement) statementNode()       {}

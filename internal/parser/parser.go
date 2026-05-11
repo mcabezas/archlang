@@ -31,9 +31,15 @@ func (p *Parser) Parse() *ast.Architecture {
 	arch.Statements = []ast.Statement{}
 
 	for !p.curTokenIs(token.EOF) {
-		stmt := p.parseStatement()
-		if stmt != nil {
-			arch.Statements = append(arch.Statements, stmt)
+		if p.curTokenIs(token.FLOW) {
+			arch.Statements = append(arch.Statements, p.parseFlowBlock()...)
+		} else if p.curTokenIs(token.FEATURE) {
+			arch.Statements = append(arch.Statements, p.parseFeatureBlock()...)
+		} else {
+			stmt := p.parseStatement()
+			if stmt != nil {
+				arch.Statements = append(arch.Statements, stmt)
+			}
 		}
 		p.nextToken()
 	}
@@ -56,7 +62,9 @@ func (p *Parser) parseStatement() ast.Statement {
 	case token.COLLABORATION:
 		return p.parseCollaborationStatement()
 	case token.FEATURE:
-		return p.parseFeatureStatement()
+		return nil // handled in Parse()
+	case token.FLOW:
+		return nil // handled in Parse()
 	case token.IDENT:
 		// name.attr = value (attribute assignment)
 		if p.peekTokenIs(token.DOT) {
@@ -211,7 +219,7 @@ func (p *Parser) parseCollaborationStatement() *ast.CollaborationStatement {
 	return stmt
 }
 
-func (p *Parser) parseFeatureStatement() *ast.FeatureStatement {
+func (p *Parser) parseFeatureBlock() []ast.Statement {
 	stmt := &ast.FeatureStatement{Token: p.curToken}
 
 	if !p.expectPeek(token.IDENT) {
@@ -223,13 +231,111 @@ func (p *Parser) parseFeatureStatement() *ast.FeatureStatement {
 		return nil
 	}
 
-	// Description: string literal (", ', or `)
 	if !p.expectPeek(token.STRING) {
 		return nil
 	}
 	stmt.Description = p.curToken.Literal
 
-	return stmt
+	// If no block follows, it's a standalone feature declaration
+	if !p.peekTokenIs(token.LBRACE) {
+		return []ast.Statement{stmt}
+	}
+
+	p.nextToken() // consume {
+
+	var stmts []ast.Statement
+	stmts = append(stmts, stmt)
+
+	for !p.peekTokenIs(token.RBRACE) && !p.peekTokenIs(token.EOF) {
+		p.nextToken()
+		switch p.curToken.Type {
+		case token.COLLABORATION:
+			collab := p.parseCollaborationStatement()
+			if collab != nil {
+				if collab.Feature != "" {
+					p.addError("collaboration already belongs to feature %q, cannot be inside feature block %q at line %d, column %d",
+						collab.Feature, stmt.Name, collab.Token.Line, collab.Token.Column)
+				} else {
+					collab.Feature = stmt.Name
+				}
+				stmts = append(stmts, collab)
+			}
+		case token.FLOW:
+			flowStmts := p.parseFlowBlock()
+			for _, fs := range flowStmts {
+				if collab, ok := fs.(*ast.CollaborationStatement); ok {
+					if collab.Feature != "" {
+						p.addError("collaboration already belongs to feature %q, cannot be inside feature block %q at line %d, column %d",
+							collab.Feature, stmt.Name, collab.Token.Line, collab.Token.Column)
+					} else {
+						collab.Feature = stmt.Name
+					}
+				}
+				stmts = append(stmts, fs)
+			}
+		default:
+			p.addError("expected collaboration or flow inside feature block, got %s at line %d, column %d",
+				p.curToken.Type, p.curToken.Line, p.curToken.Column)
+			return stmts
+		}
+	}
+
+	if !p.expectPeek(token.RBRACE) {
+		return stmts
+	}
+
+	return stmts
+}
+
+func (p *Parser) parseFlowBlock() []ast.Statement {
+	if !p.expectPeek(token.IDENT) {
+		return nil
+	}
+	flowName := p.curToken.Literal
+
+	if !p.expectPeek(token.LBRACE) {
+		return nil
+	}
+
+	// Optional description at the top of the flow block
+	var flowDescription string
+	if p.peekTokenIs(token.DESCRIPTION) {
+		p.nextToken() // consume description
+		if !p.expectPeek(token.COLON) {
+			return nil
+		}
+		if !p.expectPeek(token.STRING) {
+			return nil
+		}
+		flowDescription = p.curToken.Literal
+	}
+
+	var stmts []ast.Statement
+	for !p.peekTokenIs(token.RBRACE) && !p.peekTokenIs(token.EOF) {
+		p.nextToken()
+		if p.curToken.Type != token.COLLABORATION {
+			p.addError("expected collaboration inside flow block, got %s at line %d, column %d",
+				p.curToken.Type, p.curToken.Line, p.curToken.Column)
+			return stmts
+		}
+		collab := p.parseCollaborationStatement()
+		if collab != nil {
+			if collab.Flow != "" {
+				p.addError("collaboration already belongs to flow %q, cannot be inside flow %q at line %d, column %d",
+					collab.Flow, flowName, collab.Token.Line, collab.Token.Column)
+			} else {
+				collab.Flow = flowName
+				collab.FlowDescription = flowDescription
+			}
+			stmts = append(stmts, collab)
+		}
+	}
+
+	if !p.expectPeek(token.RBRACE) {
+		return stmts
+	}
+
+	return stmts
 }
 
 func (p *Parser) parseCollaborationBlock(stmt *ast.CollaborationStatement) {
@@ -288,8 +394,31 @@ func (p *Parser) parseCollaborationBlock(stmt *ast.CollaborationStatement) {
 					stmt.CardinalityBy = p.curToken.Literal
 				}
 			}
+		case token.FLOW:
+			if stmt.Flow != "" {
+				p.addError("collaboration already belongs to flow %q at line %d, column %d",
+					stmt.Flow, p.curToken.Line, p.curToken.Column)
+				return
+			}
+			if !p.expectPeek(token.IDENT) {
+				return
+			}
+			stmt.Flow = p.curToken.Literal
+		case token.STEP:
+			if stmt.Step != "" {
+				p.addError("collaboration block can only contain one step at line %d, column %d",
+					p.curToken.Line, p.curToken.Column)
+				return
+			}
+			if p.peekTokenIs(token.COLON) {
+				p.nextToken() // consume :
+			}
+			if !p.expectPeek(token.IDENT) {
+				return
+			}
+			stmt.Step = p.curToken.Literal
 		default:
-			p.addError("expected feature, description, or cardinality, got %s at line %d, column %d",
+			p.addError("expected feature, description, cardinality, flow, or step, got %s at line %d, column %d",
 				p.curToken.Type, p.curToken.Line, p.curToken.Column)
 			return
 		}

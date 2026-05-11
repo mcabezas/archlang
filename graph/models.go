@@ -26,13 +26,20 @@ type Feature struct {
 	Description string
 }
 
-type Collaboration struct {
-	Source      Component
-	Target      Component
-	Feature     Feature
+type Flow struct {
+	Name        string
 	Description string
+}
+
+type Collaboration struct {
+	Source        Component
+	Target        Component
+	Feature       Feature
+	Description   string
 	Cardinality   string
 	CardinalityBy string
+	Flow          Flow
+	Step          string
 }
 
 type Visibility string

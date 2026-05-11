@@ -404,6 +404,159 @@ collaboration a -> b {
 	}
 }
 
+func TestParseFlowBlock(t *testing.T) {
+	input := `feature checkout: "buy stuff"
+service a
+service b
+service c
+flow purchase {
+  collaboration a -> b {
+    feature checkout: "step 1"
+  }
+  collaboration b -> c {
+    feature checkout: "step 2"
+  }
+}`
+
+	arch := parseInput(t, input)
+	assertStatementCount(t, arch, 6) // feature + 3 services + 2 collabs
+
+	collab1 := arch.Statements[4].(*ast.CollaborationStatement)
+	collab2 := arch.Statements[5].(*ast.CollaborationStatement)
+
+	if collab1.Flow != "purchase" {
+		t.Fatalf("collab1 Flow = %q, want %q", collab1.Flow, "purchase")
+	}
+	if collab2.Flow != "purchase" {
+		t.Fatalf("collab2 Flow = %q, want %q", collab2.Flow, "purchase")
+	}
+	if collab1.Description != "step 1" {
+		t.Fatalf("collab1 Description = %q, want %q", collab1.Description, "step 1")
+	}
+}
+
+func TestParseFlowBlockWithDescription(t *testing.T) {
+	input := `feature checkout: "buy stuff"
+service a
+service b
+flow purchase {
+  description: "End-to-end purchase journey"
+  collaboration a -> b {
+    feature checkout
+  }
+}`
+
+	arch := parseInput(t, input)
+	assertStatementCount(t, arch, 4) // feature + 2 services + 1 collab
+
+	collab := arch.Statements[3].(*ast.CollaborationStatement)
+	if collab.Flow != "purchase" {
+		t.Fatalf("Flow = %q, want %q", collab.Flow, "purchase")
+	}
+	if collab.FlowDescription != "End-to-end purchase journey" {
+		t.Fatalf("FlowDescription = %q, want %q", collab.FlowDescription, "End-to-end purchase journey")
+	}
+}
+
+func TestParseInlineFlow(t *testing.T) {
+	input := `feature checkout: "buy stuff"
+service a
+service b
+collaboration a -> b {
+  feature checkout
+  flow purchase
+}`
+
+	arch := parseInput(t, input)
+	assertStatementCount(t, arch, 4)
+
+	collab := arch.Statements[3].(*ast.CollaborationStatement)
+	if collab.Flow != "purchase" {
+		t.Fatalf("Flow = %q, want %q", collab.Flow, "purchase")
+	}
+}
+
+func TestParseFlowBlockRejectsInlineFlow(t *testing.T) {
+	input := `feature checkout: "buy stuff"
+service a
+service b
+flow purchase {
+  collaboration a -> b {
+    feature checkout
+    flow other
+  }
+}`
+
+	l := lexer.New(input)
+	p := New(l)
+	p.Parse()
+
+	if len(p.Errors()) == 0 {
+		t.Fatal("expected error for inline flow inside flow block, got none")
+	}
+
+	found := false
+	for _, err := range p.Errors() {
+		if contains(err, "already belongs to flow") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected error about already belonging to flow, got %v", p.Errors())
+	}
+}
+
+func TestParseStepInFlowBlock(t *testing.T) {
+	input := `feature checkout: "buy"
+service a
+service b
+flow purchase {
+  collaboration a -> b {
+    feature checkout
+    step initiate-payment
+  }
+}`
+
+	arch := parseInput(t, input)
+	collab := arch.Statements[3].(*ast.CollaborationStatement)
+	if collab.Step != "initiate-payment" {
+		t.Fatalf("Step = %q, want %q", collab.Step, "initiate-payment")
+	}
+	if collab.Flow != "purchase" {
+		t.Fatalf("Flow = %q, want %q", collab.Flow, "purchase")
+	}
+}
+
+func TestParseStepInlineFlow(t *testing.T) {
+	input := `feature checkout: "buy"
+service a
+service b
+collaboration a -> b {
+  feature checkout
+  flow purchase
+  step initiate-payment
+}`
+
+	arch := parseInput(t, input)
+	collab := arch.Statements[3].(*ast.CollaborationStatement)
+	if collab.Step != "initiate-payment" {
+		t.Fatalf("Step = %q, want %q", collab.Step, "initiate-payment")
+	}
+}
+
+func TestParseFlowCollaborationWithoutFlow(t *testing.T) {
+	input := `service a
+service b
+collaboration a -> b`
+
+	arch := parseInput(t, input)
+	collab := arch.Statements[2].(*ast.CollaborationStatement)
+	if collab.Flow != "" {
+		t.Fatalf("expected empty flow, got %q", collab.Flow)
+	}
+}
+
 func TestParseCollaborationWithoutFeatures(t *testing.T) {
 	input := `service a
 service b
@@ -495,6 +648,132 @@ func TestParseErrors(t *testing.T) {
 		if !found {
 			t.Fatalf("expected error containing %q, got %v", tt.expectedErr, p.Errors())
 		}
+	}
+}
+
+func TestParseFeatureBlock(t *testing.T) {
+	input := `service a
+service b
+service c
+feature checkout: "buy stuff" {
+  collaboration a -> b {
+    description: "step 1"
+  }
+  collaboration b -> c {
+    description: "step 2"
+  }
+}`
+
+	arch := parseInput(t, input)
+	assertStatementCount(t, arch, 6) // 3 services + feature + 2 collabs
+
+	feat := arch.Statements[3].(*ast.FeatureStatement)
+	if feat.Name != "checkout" {
+		t.Fatalf("Feature Name = %q, want %q", feat.Name, "checkout")
+	}
+
+	collab1 := arch.Statements[4].(*ast.CollaborationStatement)
+	collab2 := arch.Statements[5].(*ast.CollaborationStatement)
+
+	if collab1.Feature != "checkout" {
+		t.Fatalf("collab1 Feature = %q, want %q", collab1.Feature, "checkout")
+	}
+	if collab2.Feature != "checkout" {
+		t.Fatalf("collab2 Feature = %q, want %q", collab2.Feature, "checkout")
+	}
+	if collab1.Description != "step 1" {
+		t.Fatalf("collab1 Description = %q, want %q", collab1.Description, "step 1")
+	}
+}
+
+func TestParseFeatureBlockWithFlow(t *testing.T) {
+	input := `service a
+service b
+feature checkout: "buy stuff" {
+  flow purchase {
+    collaboration a -> b {
+      description: "step 1"
+      step: initiate
+    }
+  }
+}`
+
+	arch := parseInput(t, input)
+	assertStatementCount(t, arch, 4) // 2 services + feature + 1 collab
+
+	collab := arch.Statements[3].(*ast.CollaborationStatement)
+	if collab.Feature != "checkout" {
+		t.Fatalf("Feature = %q, want %q", collab.Feature, "checkout")
+	}
+	if collab.Flow != "purchase" {
+		t.Fatalf("Flow = %q, want %q", collab.Flow, "purchase")
+	}
+	if collab.Step != "initiate" {
+		t.Fatalf("Step = %q, want %q", collab.Step, "initiate")
+	}
+}
+
+func TestParseFeatureBlockRejectsInlineFeature(t *testing.T) {
+	input := `feature checkout: "buy"
+feature other: "other"
+service a
+service b
+feature checkout: "buy" {
+  collaboration a -> b {
+    feature other
+  }
+}`
+
+	l := lexer.New(input)
+	p := New(l)
+	p.Parse()
+
+	if len(p.Errors()) == 0 {
+		t.Fatal("expected error for inline feature inside feature block, got none")
+	}
+
+	found := false
+	for _, err := range p.Errors() {
+		if contains(err, "already belongs to feature") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected error about already belonging to feature, got %v", p.Errors())
+	}
+}
+
+func TestParseFeatureBlockRejectsInlineFeatureInFlow(t *testing.T) {
+	input := `feature checkout: "buy"
+feature other: "other"
+service a
+service b
+feature checkout: "buy" {
+  flow purchase {
+    collaboration a -> b {
+      feature other
+    }
+  }
+}`
+
+	l := lexer.New(input)
+	p := New(l)
+	p.Parse()
+
+	if len(p.Errors()) == 0 {
+		t.Fatal("expected error for inline feature inside feature block flow, got none")
+	}
+
+	found := false
+	for _, err := range p.Errors() {
+		if contains(err, "already belongs to feature") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected error about already belonging to feature, got %v", p.Errors())
 	}
 }
 

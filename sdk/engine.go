@@ -105,6 +105,35 @@ func (e *documentationEngine) FindByFeature(name string) ([]graph.Component, err
 	return components, nil
 }
 
+func (e *documentationEngine) ListFlows() ([]graph.Flow, error) {
+	seen := make(map[string]bool)
+	var flows []graph.Flow
+	for _, g := range e.graphs {
+		for _, c := range g.Collaborations() {
+			if c.Flow.Name != "" && !seen[c.Flow.Name] {
+				seen[c.Flow.Name] = true
+				flows = append(flows, c.Flow)
+			}
+		}
+	}
+	return flows, nil
+}
+
+func (e *documentationEngine) FindByFlow(name string) ([]graph.Collaboration, error) {
+	var collabs []graph.Collaboration
+	for _, g := range e.graphs {
+		for _, c := range g.Collaborations() {
+			if c.Flow.Name == name {
+				collabs = append(collabs, c)
+			}
+		}
+	}
+	if len(collabs) == 0 {
+		return nil, ErrNotFound
+	}
+	return collabs, nil
+}
+
 func collectCollaborations(root graph.Component, levels int, getCollabs func(graph.Component) []graph.Collaboration, getNext func(graph.Collaboration) graph.Component) []graph.Collaboration {
 	if levels <= 0 {
 		return getCollabs(root)
