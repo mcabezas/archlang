@@ -59,7 +59,6 @@ collaboration api-gateway -> order-service {
 }
 collaboration order-service -> payment-service {
   feature checkout: "REST POST /payments with order payload and idempotency key"
-  cardinality 1:1
 }
 collaboration order-service -> notification-service {
   feature notifications
@@ -77,7 +76,7 @@ This compiles. Every reference is validated. Cross-org targets are checked for p
 
 **Organizations** — Inferred from `orgs/` folder structure. Components that receive cross-org calls must be `public`. Enforced at compile time.
 
-**Collaborations** — Define how components communicate. Each collaboration block carries one feature (with an optional inline description) and an optional cardinality (`1:1` or `1:N`). Duplicate collaborations between the same pair are allowed — one per feature.
+**Collaborations** — Define how components communicate. Each collaboration block carries one feature (with an optional inline description) and an optional cardinality (defaults to `1:1`, specify `1:N` or `one to many` when needed). Duplicate collaborations between the same pair are allowed — one per feature.
 
 **Features** — Declared with a name and description. Referenced inside collaborations. Trace a feature across the entire graph to see every service involved.
 
@@ -96,14 +95,14 @@ collaboration order-service -> payment-service {
   feature checkout
 }
 
-# With a feature, description, and cardinality
-collaboration order-service -> payment-service {
-  feature refund: "Async event via message queue for refund processing"
-  cardinality 1:1
+# With a feature, description, and cardinality (1:N)
+collaboration order-service -> notification-service {
+  feature order-events: "Publishes order events to multiple consumers"
+  cardinality: one to many
 }
 ```
 
-Each block carries **one feature** (with an optional inline description) and an optional **cardinality** (`1:1` or `1:N`). To describe multiple features between the same pair, use separate blocks — one per feature.
+Each block carries **one feature** (with an optional inline description) and an optional **cardinality**. Cardinality defaults to `1:1` — only specify it for `1:N` (or `one to many`). To describe multiple features between the same pair, use separate blocks — one per feature.
 
 ## How It Works
 

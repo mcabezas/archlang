@@ -60,11 +60,12 @@ type graphNode struct {
 }
 
 type graphEdge struct {
-	sourceQN    string
-	targetQN    string
-	feature     string // feature name (empty if none)
-	description string // optional collaboration description
-	cardinality string // "1:1" or "1:N", empty if not specified
+	sourceQN      string
+	targetQN      string
+	feature       string // feature name (empty if none)
+	description   string // optional collaboration description
+	cardinality   string // "1:1" or "1:N", empty if not specified
+	cardinalityBy string // partitioning key for 1:N
 }
 
 type featureDecl struct {
@@ -196,11 +197,12 @@ func buildGraph(allDomains map[string]*ast.Architecture) (*builtGraph, []string)
 				}
 
 				edges = append(edges, graphEdge{
-					sourceQN:    sourceQN,
-					targetQN:    targetQN,
-					feature:     s.Feature,
-					description: s.Description,
-					cardinality: s.Cardinality,
+					sourceQN:      sourceQN,
+					targetQN:      targetQN,
+					feature:       s.Feature,
+					description:   s.Description,
+					cardinality:   s.Cardinality,
+					cardinalityBy: s.CardinalityBy,
 				})
 			}
 		}
@@ -393,7 +395,8 @@ func generateCode(g *builtGraph, packageName string) ([]byte, error) {
 				featureLit += "}"
 				descLit := fmt.Sprintf("%q", edge.description)
 				cardLit := fmt.Sprintf("%q", edge.cardinality)
-				fmt.Fprintf(&buf, "\tg%d.AddCollaboration(%s, %s, %s, %s, %s)\n", i, toGoName(edge.sourceQN), toGoName(edge.targetQN), featureLit, descLit, cardLit)
+				cardByLit := fmt.Sprintf("%q", edge.cardinalityBy)
+				fmt.Fprintf(&buf, "\tg%d.AddCollaboration(%s, %s, %s, %s, %s, %s)\n", i, toGoName(edge.sourceQN), toGoName(edge.targetQN), featureLit, descLit, cardLit, cardByLit)
 			}
 		}
 		buf.WriteString("\n")

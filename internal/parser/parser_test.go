@@ -262,6 +262,92 @@ collaboration a -> b {
 	}
 }
 
+func TestParseCardinalityWithColon(t *testing.T) {
+	input := `feature payments: "pay"
+service a
+service b
+collaboration a -> b {
+  feature payments
+  cardinality: 1:N
+}`
+
+	arch := parseInput(t, input)
+	collab := arch.Statements[3].(*ast.CollaborationStatement)
+	if collab.Cardinality != "1:N" {
+		t.Fatalf("Cardinality = %q, want %q", collab.Cardinality, "1:N")
+	}
+}
+
+func TestParseCardinalityOneToMany(t *testing.T) {
+	input := `feature payments: "pay"
+service a
+service b
+collaboration a -> b {
+  feature payments
+  cardinality: one to many
+}`
+
+	arch := parseInput(t, input)
+	collab := arch.Statements[3].(*ast.CollaborationStatement)
+	if collab.Cardinality != "1:N" {
+		t.Fatalf("Cardinality = %q, want %q", collab.Cardinality, "1:N")
+	}
+}
+
+func TestParseCardinalityOneToOne(t *testing.T) {
+	input := `feature payments: "pay"
+service a
+service b
+collaboration a -> b {
+  feature payments
+  cardinality one to one
+}`
+
+	arch := parseInput(t, input)
+	collab := arch.Statements[3].(*ast.CollaborationStatement)
+	if collab.Cardinality != "1:1" {
+		t.Fatalf("Cardinality = %q, want %q", collab.Cardinality, "1:1")
+	}
+}
+
+func TestParseCardinalityOneToManyBy(t *testing.T) {
+	input := `feature payments: "pay"
+service a
+service b
+collaboration a -> b {
+  feature payments
+  cardinality: one to many by account-id
+}`
+
+	arch := parseInput(t, input)
+	collab := arch.Statements[3].(*ast.CollaborationStatement)
+	if collab.Cardinality != "1:N" {
+		t.Fatalf("Cardinality = %q, want %q", collab.Cardinality, "1:N")
+	}
+	if collab.CardinalityBy != "account-id" {
+		t.Fatalf("CardinalityBy = %q, want %q", collab.CardinalityBy, "account-id")
+	}
+}
+
+func TestParseCardinalityNumericBy(t *testing.T) {
+	input := `feature payments: "pay"
+service a
+service b
+collaboration a -> b {
+  feature payments
+  cardinality 1:N by tenant
+}`
+
+	arch := parseInput(t, input)
+	collab := arch.Statements[3].(*ast.CollaborationStatement)
+	if collab.Cardinality != "1:N" {
+		t.Fatalf("Cardinality = %q, want %q", collab.Cardinality, "1:N")
+	}
+	if collab.CardinalityBy != "tenant" {
+		t.Fatalf("CardinalityBy = %q, want %q", collab.CardinalityBy, "tenant")
+	}
+}
+
 func TestParseCollaborationMultipleFeaturesError(t *testing.T) {
 	input := `feature payments: "pay"
 feature refunds: "refund"

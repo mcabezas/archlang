@@ -23,24 +23,31 @@ func (g *Graph) Register(qn string, n Component) {
 }
 
 func (g *Graph) AddDownstream(source, target Component) {
-	sn := source.Base().(*component)
-	tn := target.Base().(*component)
-	sn.downstreams = append(sn.downstreams, target)
-	tn.upstreams = append(tn.upstreams, source)
-}
-
-func (g *Graph) AddCollaboration(source, target Component, feature Feature, description string, cardinality string) {
-	sn := source.Base().(*component)
-	tn := target.Base().(*component)
-	sn.downstreams = append(sn.downstreams, target)
-	tn.upstreams = append(tn.upstreams, source)
-	g.collaborations = append(g.collaborations, Collaboration{
+	collab := Collaboration{
 		Source:      source,
 		Target:      target,
-		Feature:     feature,
-		Description: description,
-		Cardinality: cardinality,
-	})
+		Cardinality: "1:1",
+	}
+	sn := source.Base().(*component)
+	sn.collaborations = append(sn.collaborations, collab)
+	g.collaborations = append(g.collaborations, collab)
+}
+
+func (g *Graph) AddCollaboration(source, target Component, feature Feature, description string, cardinality string, cardinalityBy string) {
+	if cardinality == "" {
+		cardinality = "1:1"
+	}
+	collab := Collaboration{
+		Source:        source,
+		Target:        target,
+		Feature:       feature,
+		Description:   description,
+		Cardinality:   cardinality,
+		CardinalityBy: cardinalityBy,
+	}
+	sn := source.Base().(*component)
+	sn.collaborations = append(sn.collaborations, collab)
+	g.collaborations = append(g.collaborations, collab)
 }
 
 func (g *Graph) Collaborations() []Collaboration {

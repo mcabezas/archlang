@@ -5,8 +5,7 @@ const DomainDefault Domain = "default"
 // Component is the base type for all elements in the architecture graph.
 type Component interface {
 	Name() string
-	Downstreams() []Component
-	Upstreams() []Component
+	Collaborations() []Collaboration
 	Domain() Domain
 	Org() Org
 	Visibility() Visibility
@@ -32,7 +31,8 @@ type Collaboration struct {
 	Target      Component
 	Feature     Feature
 	Description string
-	Cardinality string
+	Cardinality   string
+	CardinalityBy string
 }
 
 type Visibility string
@@ -43,12 +43,11 @@ const (
 )
 
 type component struct {
-	name        string
-	domain      Domain
-	org         Org
-	visibility  Visibility
-	downstreams []Component
-	upstreams   []Component
+	name           string
+	domain         Domain
+	org            Org
+	visibility     Visibility
+	collaborations []Collaboration
 }
 
 type NewComponentOptions struct {
@@ -138,12 +137,8 @@ func (n *component) Base() Component {
 	return n
 }
 
-func (n *component) Downstreams() []Component {
-	return n.downstreams
-}
-
-func (n *component) Upstreams() []Component {
-	return n.upstreams
+func (n *component) Collaborations() []Collaboration {
+	return n.collaborations
 }
 
 func (n *component) Domain() Domain {

@@ -37,10 +37,15 @@ func (e *documentationEngine) findBy(graphs []*graph.Graph, name string, options
 
 	for _, g := range graphs {
 		if n, ok := g.GetNode(name); ok {
+			downstream := collectCollaborations(n, opts.NestedLevels,
+				func(c graph.Component) []graph.Collaboration { return c.Collaborations() },
+				func(c graph.Collaboration) graph.Component { return c.Target })
+			upstream := collectCollaborations(n, opts.UpperLevels,
+				func(c graph.Component) []graph.Collaboration { return buildReverseMap(g)[c] },
+				func(c graph.Collaboration) graph.Component { return c.Source })
 			return &filteredComponent{
-				Component:   n,
-				downstreams: collectLevels(n, opts.NestedLevels, func(c graph.Component) []graph.Component { return c.Downstreams() }),
-				upstreams:   collectLevels(n, opts.UpperLevels, func(c graph.Component) []graph.Component { return c.Upstreams() }),
+				Component:      n,
+				collaborations: append(downstream, upstream...),
 			}, nil
 		}
 	}
@@ -49,12 +54,10 @@ func (e *documentationEngine) findBy(graphs []*graph.Graph, name string, options
 
 type filteredComponent struct {
 	graph.Component
-	downstreams []graph.Component
-	upstreams   []graph.Component
+	collaborations []graph.Collaboration
 }
 
-func (f *filteredComponent) Downstreams() []graph.Component { return f.downstreams }
-func (f *filteredComponent) Upstreams() []graph.Component   { return f.upstreams }
+func (f *filteredComponent) Collaborations() []graph.Collaboration { return f.collaborations }
 
 func (e *documentationEngine) ListAllDomains() ([]graph.Component, error) {
 	var all []graph.Component
@@ -102,23 +105,25 @@ func (e *documentationEngine) FindByFeature(name string) ([]graph.Component, err
 	return components, nil
 }
 
-func collectLevels(root graph.Component, levels int, neighbors func(graph.Component) []graph.Component) []graph.Component {
+func collectCollaborations(root graph.Component, levels int, getCollabs func(graph.Component) []graph.Collaboration, getNext func(graph.Collaboration) graph.Component) []graph.Collaboration {
 	if levels <= 0 {
-		return neighbors(root)
+		return getCollabs(root)
 	}
 
 	seen := make(map[graph.Component]bool)
+	seen[root] = true
 	current := []graph.Component{root}
-	var result []graph.Component
+	var result []graph.Collaboration
 
 	for level := 0; level < levels && len(current) > 0; level++ {
 		var next []graph.Component
 		for _, c := range current {
-			for _, n := range neighbors(c) {
-				if !seen[n] {
-					seen[n] = true
-					result = append(result, n)
-					next = append(next, n)
+			for _, collab := range getCollabs(c) {
+				result = append(result, collab)
+				neighbor := getNext(collab)
+				if !seen[neighbor] {
+					seen[neighbor] = true
+					next = append(next, neighbor)
 				}
 			}
 		}
@@ -126,4 +131,12 @@ func collectLevels(root graph.Component, levels int, neighbors func(graph.Compon
 	}
 
 	return result
+}
+
+func buildReverseMap(g *graph.Graph) map[graph.Component][]graph.Collaboration {
+	rm := make(map[graph.Component][]graph.Collaboration)
+	for _, c := range g.Collaborations() {
+		rm[c.Target] = append(rm[c.Target], c)
+	}
+	return rm
 }

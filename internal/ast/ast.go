@@ -93,7 +93,8 @@ type CollaborationStatement struct {
 	Target      ComponentRef
 	Feature     string // feature name (reference to declared feature), empty if none
 	Description string // optional description of how this collaboration works
-	Cardinality string // "1:1" or "1:N", empty if not specified
+	Cardinality   string // "1:1" or "1:N", empty if not specified
+	CardinalityBy string // partitioning key for 1:N (e.g. "account-id")
 }
 
 func (cs *CollaborationStatement) statementNode()       {}

@@ -273,20 +273,21 @@ func (p *Parser) parseCollaborationBlock(stmt *ast.CollaborationStatement) {
 					p.curToken.Line, p.curToken.Column)
 				return
 			}
-			if !p.expectPeek(token.NUMBER) {
-				return
+			// Optional colon after cardinality keyword
+			if p.peekTokenIs(token.COLON) {
+				p.nextToken() // consume :
 			}
-			left := p.curToken.Literal
-			if !p.expectPeek(token.COLON) {
-				return
+			stmt.Cardinality = p.parseCardinalityValue()
+			// Optional "by <name>"
+			if p.peekTokenIs(token.IDENT) {
+				p.nextToken()
+				if p.curToken.Literal == "by" {
+					if !p.expectPeek(token.IDENT) {
+						return
+					}
+					stmt.CardinalityBy = p.curToken.Literal
+				}
 			}
-			if !p.peekTokenIs(token.NUMBER) && !p.peekTokenIs(token.IDENT) {
-				p.addError("expected cardinality value (e.g. 1:1 or 1:N) at line %d, column %d",
-					p.peekToken.Line, p.peekToken.Column)
-				return
-			}
-			p.nextToken()
-			stmt.Cardinality = left + ":" + p.curToken.Literal
 		default:
 			p.addError("expected feature, description, or cardinality, got %s at line %d, column %d",
 				p.curToken.Type, p.curToken.Line, p.curToken.Column)
@@ -297,6 +298,56 @@ func (p *Parser) parseCollaborationBlock(stmt *ast.CollaborationStatement) {
 	if !p.expectPeek(token.RBRACE) {
 		return
 	}
+}
+
+func (p *Parser) parseCardinalityValue() string {
+	// "one to one" or "one to many"
+	if p.peekTokenIs(token.IDENT) {
+		p.nextToken()
+		word := p.curToken.Literal
+		if word == "one" {
+			if !p.expectPeek(token.IDENT) {
+				return ""
+			}
+			if p.curToken.Literal != "to" {
+				p.addError("expected 'to' in cardinality at line %d, column %d",
+					p.curToken.Line, p.curToken.Column)
+				return ""
+			}
+			if !p.expectPeek(token.IDENT) {
+				return ""
+			}
+			switch p.curToken.Literal {
+			case "one":
+				return "1:1"
+			case "many":
+				return "1:N"
+			default:
+				p.addError("expected 'one' or 'many' in cardinality at line %d, column %d",
+					p.curToken.Line, p.curToken.Column)
+				return ""
+			}
+		}
+		// Single identifier like N
+		p.addError("expected cardinality value (e.g. 1:1, 1:N, one to one, one to many) at line %d, column %d",
+			p.curToken.Line, p.curToken.Column)
+		return ""
+	}
+	// 1:1 or 1:N
+	if !p.expectPeek(token.NUMBER) {
+		return ""
+	}
+	left := p.curToken.Literal
+	if !p.expectPeek(token.COLON) {
+		return ""
+	}
+	if !p.peekTokenIs(token.NUMBER) && !p.peekTokenIs(token.IDENT) {
+		p.addError("expected cardinality value (e.g. 1:1 or 1:N) at line %d, column %d",
+			p.peekToken.Line, p.peekToken.Column)
+		return ""
+	}
+	p.nextToken()
+	return left + ":" + p.curToken.Literal
 }
 
 func (p *Parser) parseAttributeStatement() *ast.AttributeStatement {
