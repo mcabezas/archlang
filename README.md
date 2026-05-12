@@ -7,7 +7,7 @@
 
 **Architecture documentation that never lies.**
 
-ArchLang is a programming language for defining solution architectures. It compiles `.arch` files into a typed, queryable knowledge graph — serving architecture facts to humans and AI agents through multiple protocols.
+ArchLang is a programming language for defining solution architectures. It compiles `.arch` files into a typed, queryable knowledge graph — serving architecture facts through a REST API, an MCP server, and a Claude Code skill.
 
 No more outdated wikis. No more tribal knowledge. No more diagrams that rot the day after they're drawn. If it compiles, it's true.
 
@@ -45,7 +45,7 @@ ArchLang treats architecture like code:
 
 - **Write it** — Human-readable `.arch` files define components, services, collaborations, features, flows, and steps
 - **Compile it** — The compiler validates everything at build time. Undeclared references, cross-org visibility violations, and missing imports are compile errors — not runtime surprises
-- **Query it** — The compiled graph is served through REST, gRPC, MCP, and Slack. Same question, same answer, every time
+- **Query it** — The compiled graph is served through REST and MCP. Same question, same answer, every time
 - **Trace it** — Features, flows, and steps are first-class citizens. Trace a business capability across every collaboration in your architecture
 
 ```
@@ -180,15 +180,15 @@ Using inline `flow` inside a flow block is a compile error. Steps require a flow
 ## How It Works
 
 ```
-.arch files → ArchLang Compiler → Knowledge Graph → API → AI Agents → Teams
+.arch files → ArchLang Compiler → Knowledge Graph → MCP Server → Claude Code Skill → Teams
 ```
 
 1. Teams write `.arch` files — the single source of truth
 2. The compiler generates a typed Go graph with all validations enforced
-3. The Architecture Documentation Service exposes the graph via HTTP, gRPC, MCP, and Slack
-4. An AI agent consumes the knowledge and serves it to engineering teams
+3. The Architecture Documentation Service exposes the graph via REST and MCP
+4. The `/arch` skill in Claude Code queries the MCP server and presents results to engineers
 
-The graph is deterministic. No AI in the data path. No hallucinations. The agent answers from compiled facts.
+The graph is deterministic. No AI in the data path. No hallucinations. The skill answers from compiled facts.
 
 ## Install
 
@@ -247,10 +247,11 @@ import (
 func main() {
 	svc := sdk.New(generated.AllGraphs, generated.AllDomainGraphs)
 
-	addr := os.Getenv("ADDR")
-	if addr == "" {
-		addr = ":8080"
+	port := os.Getenv("REST_SERVER_PORT")
+	if port == "" {
+		port = "8080"
 	}
+	addr := ":" + port
 
 	server := sdk.NewHTTPServer(svc, addr)
 	if err := server.Start(); err != nil {
@@ -283,14 +284,116 @@ component, _ := svc.FindByName("order-service")
 collabs, _ := svc.FindByFlow("purchase")
 ```
 
-Wire it to gRPC, MCP, Slack, or any protocol you need.
+## MCP Server
 
-## Agents
+ArchLang ships with a built-in MCP (Model Context Protocol) server that exposes the compiled architecture graph as tools. This is the backbone for the Claude Code skill and can also be used by any MCP-compatible client.
 
-The [`agents/`](agents/) directory contains agent implementations that wrap the Architecture Knowledge Graph. They provide natural language interfaces while guaranteeing all answers come from the compiled architecture — not from guessing.
+### Available Tools
 
-- **MCP Server** — Model Context Protocol for AI coding assistants
-- **Slack Bot** — Architecture queries in Slack channels
+| Tool | Description |
+|---|---|
+| `list_components` | List all components with kind, org, domain, and visibility |
+| `get_component` | Get a component's full details including upstream and downstream collaborations |
+| `list_features` | List all declared business features |
+| `trace_feature` | Trace a feature across every service, flow, and step |
+| `list_flows` | List all declared flows |
+| `trace_flow` | Trace a flow step by step across services |
+| `analyze_impact` | Analyze what would break if a component changes — affected features, flows, and testing recommendations |
+
+### Setup
+
+#### 1. Create the MCP entry point
+
+```go
+// cmd/mcp/main.go
+package main
+
+import (
+	"log"
+	"os"
+
+	"your-module/generated"
+
+	sdk "github.com/mcabezas/archlang/sdk"
+)
+
+func main() {
+	svc := sdk.New(generated.AllGraphs, generated.AllDomainGraphs)
+	mcp := sdk.NewMCPServer(svc)
+
+	port := os.Getenv("MCP_SERVER_PORT")
+	if port == "" {
+		port = "9090"
+	}
+	addr := ":" + port
+
+	if err := mcp.ServeSSE(addr); err != nil {
+		log.Fatal(err)
+	}
+}
+```
+
+#### 2. Build and run
+
+```bash
+go build -o archlang-mcp ./cmd/mcp
+MCP_SERVER_PORT=9090 ./archlang-mcp
+```
+
+#### 3. Configure your AI assistant
+
+Create `.mcp.json` in your project root:
+
+```json
+{
+  "mcpServers": {
+    "archlang": {
+      "command": "/absolute/path/to/archlang-mcp"
+    }
+  }
+}
+```
+
+## Claude Code Skill
+
+ArchLang provides an `/arch` skill for Claude Code that uses the MCP server as its source of truth. When invoked, the skill queries the compiled architecture graph — it never searches source files or guesses.
+
+### Install
+
+```bash
+# Symlink (recommended — stays up to date with the repo)
+ln -s /path/to/archlang/skills/arch ~/.claude/skills/arch
+
+# Or copy
+cp -r /path/to/archlang/skills/arch ~/.claude/skills/arch
+```
+
+### Usage
+
+Once installed, use it in any Claude Code session:
+
+```
+/arch cross-border-payments          # Trace a feature end to end
+/arch cross-border-payments open     # Trace and open Mermaid diagram in browser
+/copy arch cross-border-payments     # Copy Mermaid diagram to clipboard
+```
+
+### What it does
+
+- Queries the MCP server for architecture facts (features, flows, components, impact)
+- Presents results in plain language with Mermaid sequence diagrams
+- Refuses to guess — if the MCP server doesn't have it, it says so
+- Suggests `make mcp-up` if the server isn't running
+
+### Example questions via the skill
+
+- *"What services exist in the system?"*
+- *"What depends on the order service?"*
+- *"Trace the checkout feature end to end"*
+- *"What would break if we change the payment service?"*
+- *"How does the purchase flow work step by step?"*
+
+Every answer comes from the compiled graph — deterministic, accurate, always up to date.
 
 ## Contributing
 
