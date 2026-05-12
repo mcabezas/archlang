@@ -2,6 +2,7 @@ package parser
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/mcabezas/archlang/internal/ast"
 	"github.com/mcabezas/archlang/internal/lexer"
@@ -49,8 +50,6 @@ func (p *Parser) Parse() *ast.Architecture {
 
 func (p *Parser) parseStatement() ast.Statement {
 	switch p.curToken.Type {
-	case token.IMPORT:
-		return p.parseImportStatement()
 	case token.PUBLIC, token.INTERNAL:
 		return p.parseVisibilityStatement()
 	case token.COMPONENT:
@@ -69,7 +68,7 @@ func (p *Parser) parseStatement() ast.Statement {
 		return nil // handled in Parse()
 	case token.IDENT:
 		// name.attr = value (attribute assignment)
-		if p.peekTokenIs(token.DOT) {
+		if strings.Contains(p.curToken.Literal, ".") && p.peekTokenIs(token.ASSIGN) {
 			return p.parseAttributeStatement()
 		}
 		p.addError("unexpected identifier %q at line %d, column %d",
@@ -179,26 +178,6 @@ func (p *Parser) parseComponentAttributes(frontend *bool, infra *string) {
 	if !p.expectPeek(token.RBRACE) {
 		return
 	}
-}
-
-func (p *Parser) parseImportStatement() *ast.ImportStatement {
-	stmt := &ast.ImportStatement{Token: p.curToken}
-
-	if !p.expectPeek(token.IDENT) {
-		return nil
-	}
-	stmt.Domain = p.curToken.Literal
-	stmt.Alias = p.curToken.Literal
-
-	if p.peekTokenIs(token.AS) {
-		p.nextToken()
-		if !p.expectPeek(token.IDENT) {
-			return nil
-		}
-		stmt.Alias = p.curToken.Literal
-	}
-
-	return stmt
 }
 
 func (p *Parser) parseEventStatement() *ast.EventStatement {
@@ -585,20 +564,11 @@ func (p *Parser) parsePublishesList() []string {
 
 func (p *Parser) parseAttributeStatement() *ast.AttributeStatement {
 	stmt := &ast.AttributeStatement{Token: p.curToken}
-	stmt.Component = p.curToken.Literal
 
-	p.nextToken() // consume dot
-
-	// Next token is the attribute name
-	p.nextToken()
-	if p.curToken.Type == token.FRONTEND {
-		stmt.Attribute = "frontend"
-	} else if p.curToken.Type == token.IDENT {
-		stmt.Attribute = p.curToken.Literal
-	} else {
-		p.addError("expected attribute name, got %s at line %d", p.curToken.Type, p.curToken.Line)
-		return nil
-	}
+	// Token literal is "component.attribute", split on first dot
+	parts := strings.SplitN(p.curToken.Literal, ".", 2)
+	stmt.Component = parts[0]
+	stmt.Attribute = parts[1]
 
 	if !p.expectPeek(token.ASSIGN) {
 		return nil
@@ -612,12 +582,12 @@ func (p *Parser) parseAttributeStatement() *ast.AttributeStatement {
 
 func (p *Parser) parseComponentRef() ast.ComponentRef {
 	name := p.curToken.Literal
-	if p.peekTokenIs(token.DOT) {
-		p.nextToken() // consume dot
-		if !p.expectPeek(token.IDENT) {
-			return ast.ComponentRef{Domain: name}
-		}
-		return ast.ComponentRef{Domain: name, Name: p.curToken.Literal}
+	return splitComponentRef(name)
+}
+
+func splitComponentRef(name string) ast.ComponentRef {
+	if i := strings.Index(name, "."); i > 0 {
+		return ast.ComponentRef{Domain: name[:i], Name: name[i+1:]}
 	}
 	return ast.ComponentRef{Name: name}
 }

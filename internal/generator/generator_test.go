@@ -27,12 +27,12 @@ func TestGenerate(t *testing.T) {
 
 	// Check some components are declared as vars
 	for _, name := range []string{
-		"OrdersOrderManagement",
-		"PaymentsPaymentProcessing",
-		"UsersAuth",
-		"GatewayLoadBalancer",
-		"DeliveryTracking",
-		"NotificationsEmail",
+		"OrderManagement",
+		"PaymentProcessing",
+		"Auth",
+		"LoadBalancer",
+		"Tracking",
+		"Email",
 	} {
 		if !strings.Contains(code, name) {
 			t.Errorf("missing variable declaration for %s", name)
@@ -49,12 +49,9 @@ func TestGenerate(t *testing.T) {
 		t.Error("missing NewInfra constructor")
 	}
 
-	// Check WithName and WithDomain are used
+	// Check WithName is used
 	if !strings.Contains(code, "graph.WithName(") {
 		t.Error("missing WithName option")
-	}
-	if !strings.Contains(code, "graph.WithDomain(") {
-		t.Error("missing WithDomain option")
 	}
 
 	// Check AllGraphs
@@ -89,11 +86,11 @@ func TestGenerate(t *testing.T) {
 func TestConnectedComponents(t *testing.T) {
 	g := &builtGraph{
 		nodes: map[string]*graphNode{
-			"pkg1.a": {qualifiedName: "pkg1.a", name: "a", domain: "pkg1", isService: true, downstreams: []string{"pkg1.b"}},
-			"pkg1.b": {qualifiedName: "pkg1.b", name: "b", domain: "pkg1", isService: true, upstreams: []string{"pkg1.a"}},
-			"pkg2.x": {qualifiedName: "pkg2.x", name: "x", domain: "pkg2", isService: true},
+			"a": {name: "a", isService: true, downstreams: []string{"b"}},
+			"b": {name: "b", isService: true, upstreams: []string{"a"}},
+			"x": {name: "x", isService: true},
 		},
-		order: []string{"pkg1.a", "pkg1.b", "pkg2.x"},
+		order: []string{"a", "b", "x"},
 	}
 
 	components := connectedComponents(g)
@@ -107,11 +104,11 @@ func TestToGoName(t *testing.T) {
 		input    string
 		expected string
 	}{
-		{"users.redis", "UsersRedis"},
-		{"gateway.api-gateway", "GatewayApiGateway"},
-		{"orders.order-management", "OrdersOrderManagement"},
-		{"notifications.push", "NotificationsPush"},
-		{"payments/stripe", "PaymentsStripe"},
+		{"redis", "Redis"},
+		{"api-gateway", "ApiGateway"},
+		{"order-management", "OrderManagement"},
+		{"push", "Push"},
+		{"payment.start", "PaymentStart"},
 	}
 
 	for _, tt := range tests {

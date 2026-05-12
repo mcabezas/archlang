@@ -65,17 +65,8 @@ type AttributeStatement struct {
 func (as *AttributeStatement) statementNode()       {}
 func (as *AttributeStatement) TokenLiteral() string { return as.Token.Literal }
 
-type ImportStatement struct {
-	Token   token.Token
-	Domain string
-	Alias  string
-}
-
-func (is *ImportStatement) statementNode()       {}
-func (is *ImportStatement) TokenLiteral() string { return is.Token.Literal }
-
 type ComponentRef struct {
-	Domain string // empty for local references
+	Domain string // deprecated, kept for parser compatibility
 	Name    string
 }
 

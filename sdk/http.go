@@ -134,7 +134,7 @@ func toComponentJSON(c graph.Component) componentJSON {
 	var collabs []collaborationJSON
 	for _, col := range c.Collaborations() {
 		collabs = append(collabs, collaborationJSON{
-			Target:        string(col.Target.Domain()) + "." + col.Target.Name(),
+			Target:        col.Target.Name(),
 			Feature:       col.Feature.Name,
 			Description:   col.Description,
 			Cardinality:   col.Cardinality,

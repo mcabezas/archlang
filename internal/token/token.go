@@ -14,9 +14,6 @@ const (
 	SERVICE       = "SERVICE"
 	EVENT         = "EVENT"
 	COLLABORATION = "COLLABORATION"
-	IMPORT        = "IMPORT"
-	AS            = "AS"
-
 	FRONTEND = "FRONTEND"
 	INFRA    = "INFRA"
 	PUBLIC   = "PUBLIC"
@@ -32,7 +29,6 @@ const (
 	// Operators
 	ARROW         = "->"
 	REVERSE_ARROW = "<-"
-	DOT           = "."
 	COLON         = ":"
 	ASSIGN        = "="
 	COMMA         = ","
@@ -60,8 +56,6 @@ var keywords = map[string]TokenType{
 	"service":       SERVICE,
 	"event":         EVENT,
 	"collaboration": COLLABORATION,
-	"import":        IMPORT,
-	"as":            AS,
 	"frontend":      FRONTEND,
 	"infra":         INFRA,
 	"public":        PUBLIC,

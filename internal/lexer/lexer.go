@@ -50,8 +50,6 @@ func (l *Lexer) NextToken() token.Token {
 		tok = l.newToken(token.LBRACKET)
 	case ']':
 		tok = l.newToken(token.RBRACKET)
-	case '.':
-		tok = l.newToken(token.DOT)
 	case ',':
 		tok = l.newToken(token.COMMA)
 	case ':':
@@ -187,7 +185,7 @@ func (l *Lexer) readNumber() string {
 }
 
 func isLetter(ch byte) bool {
-	return 'a' <= ch && ch <= 'z' || 'A' <= ch && ch <= 'Z' || ch == '_' || ch == '-' || ch == '/'
+	return 'a' <= ch && ch <= 'z' || 'A' <= ch && ch <= 'Z' || ch == '_' || ch == '-' || ch == '/' || ch == '.'
 }
 
 func isDigit(ch byte) bool {

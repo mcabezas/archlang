@@ -15,6 +15,7 @@ func (d *mermaidDrawer) draw(components []graph.Component) string {
 
 	orgOrder, orgs := groupByOrg(components)
 	writeSubgraphs(&sb, orgOrder, orgs)
+	writeEventClassDef(&sb, components)
 
 	type edgeKey struct{ from, to string }
 	seen := make(map[edgeKey]bool)
@@ -23,7 +24,11 @@ func (d *mermaidDrawer) draw(components []graph.Component) string {
 			key := edgeKey{c.Name(), collab.Target.Name()}
 			if !seen[key] {
 				seen[key] = true
-				fmt.Fprintf(&sb, "  %s --> %s\n", nodeID(c.Name()), nodeID(collab.Target.Name()))
+				arrow := "-->"
+				if isEvent(collab.Source) || isEvent(collab.Target) {
+					arrow = "-.->"
+				}
+				fmt.Fprintf(&sb, "  %s %s %s\n", nodeID(c.Name()), arrow, nodeID(collab.Target.Name()))
 			}
 		}
 	}
@@ -99,6 +104,7 @@ func (d *mermaidDrawer) drawFeature(components []graph.Component, feature string
 			var diagram strings.Builder
 			diagram.WriteString("graph LR\n")
 			writeSubgraphs(&diagram, orgOrder, orgs)
+			writeEventClassDef(&diagram, componentsInDiagram)
 
 			type edgeKey struct{ from, to string }
 			seen := make(map[edgeKey]bool)
@@ -109,10 +115,14 @@ func (d *mermaidDrawer) drawFeature(components []graph.Component, feature string
 				}
 				seen[key] = true
 				label := edgeLabel(collab)
+				arrow := "-->"
+				if isEvent(collab.Source) || isEvent(collab.Target) {
+					arrow = "-.->"
+				}
 				if label != "" {
-					fmt.Fprintf(&diagram, "  %s -->|\"%s\"| %s\n", nodeID(collab.Source.Name()), label, nodeID(collab.Target.Name()))
+					fmt.Fprintf(&diagram, "  %s %s|\"%s\"| %s\n", nodeID(collab.Source.Name()), arrow, label, nodeID(collab.Target.Name()))
 				} else {
-					fmt.Fprintf(&diagram, "  %s --> %s\n", nodeID(collab.Source.Name()), nodeID(collab.Target.Name()))
+					fmt.Fprintf(&diagram, "  %s %s %s\n", nodeID(collab.Source.Name()), arrow, nodeID(collab.Target.Name()))
 				}
 			}
 
@@ -156,14 +166,39 @@ func writeSubgraphs(sb *strings.Builder, orgOrder []graph.Org, orgs map[graph.Or
 	for _, org := range orgOrder {
 		fmt.Fprintf(sb, "  subgraph org_%s [\"%s\"]\n", nodeID(string(org)), string(org))
 		for _, c := range orgs[org] {
-			fmt.Fprintf(sb, "    %s[\"%s\"]\n", nodeID(c.Name()), c.Name())
+			if isEvent(c) {
+				fmt.Fprintf(sb, "    %s([\"%s\"])\n", nodeID(c.Name()), c.Name())
+			} else {
+				fmt.Fprintf(sb, "    %s[\"%s\"]\n", nodeID(c.Name()), c.Name())
+			}
 		}
 		sb.WriteString("  end\n")
 	}
 }
 
+func isEvent(c graph.Component) bool {
+	_, ok := c.(*graph.Event)
+	return ok
+}
+
+func writeEventClassDef(sb *strings.Builder, components []graph.Component) {
+	var eventNodes []string
+	for _, c := range components {
+		if isEvent(c) {
+			eventNodes = append(eventNodes, nodeID(c.Name()))
+		}
+	}
+	if len(eventNodes) > 0 {
+		sb.WriteString("  classDef event fill:#0d9488,stroke:#2dd4bf,color:#f0fdfa\n")
+		fmt.Fprintf(sb, "  class %s event\n", strings.Join(eventNodes, ","))
+	}
+}
+
 func edgeLabel(c graph.Collaboration) string {
 	var parts []string
+	if c.Execute != "" {
+		parts = append(parts, c.Execute+"()")
+	}
 	if c.Description != "" {
 		parts = append(parts, c.Description)
 	}

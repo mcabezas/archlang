@@ -66,60 +66,22 @@ collaboration payments -> redis`
 }
 
 func TestParseQualifiedCollaboration(t *testing.T) {
-	input := `import payments
-
-service order-management
+	input := `service order-management
 
 collaboration order-management -> payments.payment-processing`
 
 	arch := parseInput(t, input)
-	assertStatementCount(t, arch, 3)
+	assertStatementCount(t, arch, 2)
 
-	collab, ok := arch.Statements[2].(*ast.CollaborationStatement)
+	collab, ok := arch.Statements[1].(*ast.CollaborationStatement)
 	if !ok {
-		t.Fatalf("statements[2] not *ast.CollaborationStatement, got %T", arch.Statements[2])
+		t.Fatalf("statements[1] not *ast.CollaborationStatement, got %T", arch.Statements[1])
 	}
 	if collab.Source.Name != "order-management" || collab.Source.Domain != "" {
 		t.Fatalf("Source = %+v, want local order-management", collab.Source)
 	}
 	if collab.Target.Domain != "payments" || collab.Target.Name != "payment-processing" {
 		t.Fatalf("Target = %+v, want payments.payment-processing", collab.Target)
-	}
-}
-
-func TestParseImport(t *testing.T) {
-	input := `import notifications`
-
-	arch := parseInput(t, input)
-	assertStatementCount(t, arch, 1)
-
-	imp, ok := arch.Statements[0].(*ast.ImportStatement)
-	if !ok {
-		t.Fatalf("statements[0] not *ast.ImportStatement, got %T", arch.Statements[0])
-	}
-	if imp.Domain != "notifications" {
-		t.Fatalf("Domain = %q, want %q", imp.Domain, "notifications")
-	}
-	if imp.Alias != "notifications" {
-		t.Fatalf("Alias = %q, want %q", imp.Alias, "notifications")
-	}
-}
-
-func TestParseImportWithAlias(t *testing.T) {
-	input := `import notifications as noti`
-
-	arch := parseInput(t, input)
-	assertStatementCount(t, arch, 1)
-
-	imp, ok := arch.Statements[0].(*ast.ImportStatement)
-	if !ok {
-		t.Fatalf("statements[0] not *ast.ImportStatement, got %T", arch.Statements[0])
-	}
-	if imp.Domain != "notifications" {
-		t.Fatalf("Domain = %q, want %q", imp.Domain, "notifications")
-	}
-	if imp.Alias != "noti" {
-		t.Fatalf("Alias = %q, want %q", imp.Alias, "noti")
 	}
 }
 
@@ -643,10 +605,6 @@ func TestParseErrors(t *testing.T) {
 		},
 		{
 			input:       `collaboration payments ->`,
-			expectedErr: "expected IDENT, got EOF",
-		},
-		{
-			input:       `import`,
 			expectedErr: "expected IDENT, got EOF",
 		},
 	}

@@ -27,25 +27,25 @@ func WithStrict() GenerateOption {
 // Generate discovers .arch files in dir, parses them, builds the graph,
 // and produces Go source code containing the hardcoded graph.
 func Generate(dir string, packageName string, opts ...GenerateOption) ([]byte, error) {
-	domains, err := discoverDomains(dir)
+	sources, err := discoverSources(dir)
 	if err != nil {
 		return nil, err
 	}
 
-	if len(domains) == 0 {
+	if len(sources) == 0 {
 		return nil, fmt.Errorf("no .arch files found in %q", dir)
 	}
 
 	parsed := make(map[string]*ast.Architecture)
-	for domain, input := range domains {
+	for folder, input := range sources {
 		l := lexer.New(input)
 		p := parser.New(l)
 		arch := p.Parse()
 
 		if len(p.Errors()) > 0 {
-			return nil, fmt.Errorf("parse errors in domain %q:\n  %s", domain, strings.Join(p.Errors(), "\n  "))
+			return nil, fmt.Errorf("parse errors in %q:\n  %s", folder, strings.Join(p.Errors(), "\n  "))
 		}
-		parsed[domain] = arch
+		parsed[folder] = arch
 	}
 
 	cfg := &generateConfig{}
@@ -69,32 +69,30 @@ func Generate(dir string, packageName string, opts ...GenerateOption) ([]byte, e
 
 // graphNode holds the information needed to generate code for a single node.
 type graphNode struct {
-	qualifiedName string
-	name          string
-	domain        string
-	org           string
-	isService     bool
-	isInfra       bool
-	isEvent       bool
-	eventDesc     string
-	isPublic      bool
-	downstreams   []string // qualified names
-	upstreams     []string // qualified names
+	name        string
+	org         string
+	isService   bool
+	isInfra     bool
+	isEvent     bool
+	eventDesc   string
+	isPublic    bool
+	downstreams []string
+	upstreams   []string
 }
 
 type graphEdge struct {
-	sourceQN      string
-	targetQN      string
-	feature       string // feature name (empty if none)
-	description   string // optional collaboration description
-	cardinality   string // "1:1" or "1:N", empty if not specified
-	cardinalityBy string // partitioning key for 1:N
-	flow            string // flow name, empty if not inside a flow block
-	flowDescription string // flow description
-	step            string // step name within a flow
-	stepOrder       int    // order of the step within its flow
-	execute         string   // action name for event collaborations
-	publishEdges    []int    // indices into edges slice for published events
+	sourceQN        string
+	targetQN        string
+	feature         string
+	description     string
+	cardinality     string
+	cardinalityBy   string
+	flow            string
+	flowDescription string
+	step            string
+	stepOrder       int
+	execute         string
+	publishEdges    []int
 }
 
 type featureDecl struct {
@@ -105,32 +103,32 @@ type featureDecl struct {
 // builtGraph is the intermediate representation after building from ASTs.
 type builtGraph struct {
 	nodes    map[string]*graphNode
-	order    []string // sorted qualified names
+	order    []string // sorted names
 	edges    []graphEdge
-	features map[string]*featureDecl // name -> declaration
+	features map[string]*featureDecl
 	warnings []string
 }
 
-func buildGraph(allDomains map[string]*ast.Architecture) (*builtGraph, []string) {
+func buildGraph(allFolders map[string]*ast.Architecture) (*builtGraph, []string) {
 	nodes := make(map[string]*graphNode)
 	features := make(map[string]*featureDecl)
 	var errors []string
 
-	errors = append(errors, registerDeclarations(allDomains, nodes, features)...)
-	edges, wireErrs := wireCollaborations(allDomains, nodes, features)
+	errors = append(errors, registerDeclarations(allFolders, nodes, features)...)
+	edges, wireErrs := wireCollaborations(allFolders, nodes, features)
 	errors = append(errors, wireErrs...)
 	errors = append(errors, validateCrossOrgVisibility(nodes)...)
 
 	order := make([]string, 0, len(nodes))
-	for qn := range nodes {
-		order = append(order, qn)
+	for name := range nodes {
+		order = append(order, name)
 	}
 	sort.Strings(order)
 
 	// Detect orphan events (published but no subscribers)
 	var warnings []string
-	for _, qn := range order {
-		n := nodes[qn]
+	for _, name := range order {
+		n := nodes[name]
 		if n.isEvent && len(n.downstreams) == 0 {
 			warnings = append(warnings, fmt.Sprintf("warning: event %q is published but has no subscribers", n.name))
 		}
@@ -139,74 +137,62 @@ func buildGraph(allDomains map[string]*ast.Architecture) (*builtGraph, []string)
 	return &builtGraph{nodes: nodes, order: order, edges: edges, features: features, warnings: warnings}, errors
 }
 
-func registerDeclarations(allDomains map[string]*ast.Architecture, nodes map[string]*graphNode, features map[string]*featureDecl) []string {
+func registerDeclarations(allFolders map[string]*ast.Architecture, nodes map[string]*graphNode, features map[string]*featureDecl) []string {
 	var errors []string
-	for domain, arch := range allDomains {
-		org := inferOrg(domain)
+	for folder, arch := range allFolders {
+		org := inferOrg(folder)
 		for _, stmt := range arch.Statements {
 			switch s := stmt.(type) {
 			case *ast.ComponentStatement:
-				qn := domain + "." + s.Name
-				if _, exists := nodes[qn]; exists {
-					errors = append(errors, fmt.Sprintf("%s: line %d: duplicate declaration %q", domain, s.Token.Line, s.Name))
+				if _, exists := nodes[s.Name]; exists {
+					errors = append(errors, fmt.Sprintf("%s: line %d: duplicate declaration %q", folder, s.Token.Line, s.Name))
 					continue
 				}
 				n := &graphNode{
-					qualifiedName: qn,
-					name:          s.Name,
-					domain:        domain,
-					org:           org,
-					isPublic:      s.Public,
+					name:     s.Name,
+					org:      org,
+					isPublic: s.Public,
 				}
 				if s.Infra != "" {
 					n.isInfra = true
 				}
-				nodes[qn] = n
+				nodes[s.Name] = n
 			case *ast.ServiceStatement:
-				qn := domain + "." + s.Name
-				if _, exists := nodes[qn]; exists {
-					errors = append(errors, fmt.Sprintf("%s: line %d: duplicate declaration %q", domain, s.Token.Line, s.Name))
+				if _, exists := nodes[s.Name]; exists {
+					errors = append(errors, fmt.Sprintf("%s: line %d: duplicate declaration %q", folder, s.Token.Line, s.Name))
 					continue
 				}
-				nodes[qn] = &graphNode{
-					qualifiedName: qn,
-					name:          s.Name,
-					domain:        domain,
-					org:           org,
-					isService:     true,
-					isPublic:      s.Public,
+				nodes[s.Name] = &graphNode{
+					name:      s.Name,
+					org:       org,
+					isService: true,
+					isPublic:  s.Public,
 				}
 			case *ast.InfraStatement:
-				qn := domain + "." + s.Name
-				if _, exists := nodes[qn]; exists {
-					errors = append(errors, fmt.Sprintf("%s: line %d: duplicate declaration %q", domain, s.Token.Line, s.Name))
+				if _, exists := nodes[s.Name]; exists {
+					errors = append(errors, fmt.Sprintf("%s: line %d: duplicate declaration %q", folder, s.Token.Line, s.Name))
 					continue
 				}
-				nodes[qn] = &graphNode{
-					qualifiedName: qn,
-					name:          s.Name,
-					domain:        domain,
-					org:           org,
-					isInfra:       true,
-					isPublic:      s.Public,
+				nodes[s.Name] = &graphNode{
+					name:     s.Name,
+					org:      org,
+					isInfra:  true,
+					isPublic: s.Public,
 				}
 			case *ast.EventStatement:
-				qn := domain + "." + s.Name
-				if _, exists := nodes[qn]; exists {
-					errors = append(errors, fmt.Sprintf("%s: line %d: duplicate declaration %q", domain, s.Token.Line, s.Name))
+				if _, exists := nodes[s.Name]; exists {
+					errors = append(errors, fmt.Sprintf("%s: line %d: duplicate declaration %q", folder, s.Token.Line, s.Name))
 					continue
 				}
-				nodes[qn] = &graphNode{
-					qualifiedName: qn,
-					name:          s.Name,
-					domain:        domain,
-					org:           org,
-					isEvent:       true,
-					eventDesc:     s.Description,
+				nodes[s.Name] = &graphNode{
+					name:      s.Name,
+					org:       org,
+					isEvent:   true,
+					eventDesc: s.Description,
 				}
 			case *ast.FeatureStatement:
 				if _, exists := features[s.Name]; exists {
-					errors = append(errors, fmt.Sprintf("%s: line %d: duplicate feature declaration %q", domain, s.Token.Line, s.Name))
+					errors = append(errors, fmt.Sprintf("%s: line %d: duplicate feature declaration %q", folder, s.Token.Line, s.Name))
 					continue
 				}
 				features[s.Name] = &featureDecl{name: s.Name, description: s.Description}
@@ -216,37 +202,25 @@ func registerDeclarations(allDomains map[string]*ast.Architecture, nodes map[str
 	return errors
 }
 
-func wireCollaborations(allDomains map[string]*ast.Architecture, nodes map[string]*graphNode, features map[string]*featureDecl) ([]graphEdge, []string) {
+func wireCollaborations(allFolders map[string]*ast.Architecture, nodes map[string]*graphNode, features map[string]*featureDecl) ([]graphEdge, []string) {
 	var edges []graphEdge
 	var errors []string
 
-	for domain, arch := range allDomains {
-		imports := collectImports(arch)
-
-		for _, imp := range imports {
-			if _, exists := allDomains[imp.Domain]; !exists {
-				errors = append(errors, fmt.Sprintf(
-					"%s: line %d: imported domain %q does not exist",
-					domain, imp.Token.Line, imp.Domain))
-			}
-		}
-
-		domainAliases := buildAliasMap(imports)
-
+	for folder, arch := range allFolders {
 		for _, stmt := range arch.Statements {
 			s, ok := stmt.(*ast.CollaborationStatement)
 			if !ok {
 				continue
 			}
 
-			sourceQN, err := resolveRef(domain, s.Source, domainAliases, s.Token.Line, nodes)
+			sourceQN, err := resolveRef(s.Source, s.Token.Line, nodes)
 			if err != "" {
-				errors = append(errors, fmt.Sprintf("%s: %s", domain, err))
+				errors = append(errors, fmt.Sprintf("%s: %s", folder, err))
 			}
 
-			targetQN, err := resolveRef(domain, s.Target, domainAliases, s.Token.Line, nodes)
+			targetQN, err := resolveRef(s.Target, s.Token.Line, nodes)
 			if err != "" {
-				errors = append(errors, fmt.Sprintf("%s: %s", domain, err))
+				errors = append(errors, fmt.Sprintf("%s: %s", folder, err))
 			}
 
 			if sourceQN == "" || targetQN == "" {
@@ -259,13 +233,13 @@ func wireCollaborations(allDomains map[string]*ast.Architecture, nodes map[strin
 			if s.Feature != "" {
 				if _, ok := features[s.Feature]; !ok {
 					errors = append(errors, fmt.Sprintf(
-						"%s: line %d: undeclared feature %q", domain, s.Token.Line, s.Feature))
+						"%s: line %d: undeclared feature %q", folder, s.Token.Line, s.Feature))
 				}
 			}
 
 			if s.Step != "" && s.Flow == "" {
 				errors = append(errors, fmt.Sprintf(
-					"%s: line %d: step %q requires a flow", domain, s.Token.Line, s.Step))
+					"%s: line %d: step %q requires a flow", folder, s.Token.Line, s.Step))
 			}
 
 			// Validate execute is only on event collaborations
@@ -273,7 +247,7 @@ func wireCollaborations(allDomains map[string]*ast.Architecture, nodes map[strin
 			targetIsEvent := nodes[targetQN] != nil && nodes[targetQN].isEvent
 			if s.Execute != "" && !sourceIsEvent && !targetIsEvent {
 				errors = append(errors, fmt.Sprintf(
-					"%s: line %d: execute is only valid on event collaborations", domain, s.Token.Line))
+					"%s: line %d: execute is only valid on event collaborations", folder, s.Token.Line))
 			}
 
 			subscribeIdx := len(edges)
@@ -293,14 +267,15 @@ func wireCollaborations(allDomains map[string]*ast.Architecture, nodes map[strin
 
 			// Expand publishes into edges and wire them to the subscribe edge
 			for i, eventName := range s.Publishes {
-				eventQN, err := resolveRef(domain, ast.ComponentRef{Name: eventName}, domainAliases, s.Token.Line, nodes)
+				eventRef := ast.ComponentRef{Name: eventName}
+				eventQN, err := resolveRef(eventRef, s.Token.Line, nodes)
 				if err != "" {
-					errors = append(errors, fmt.Sprintf("%s: %s", domain, err))
+					errors = append(errors, fmt.Sprintf("%s: %s", folder, err))
 					continue
 				}
 				if nodes[eventQN] != nil && !nodes[eventQN].isEvent {
 					errors = append(errors, fmt.Sprintf(
-						"%s: line %d: publishes target %q is not an event", domain, s.Token.Line, eventName))
+						"%s: line %d: publishes target %q is not an event", folder, s.Token.Line, eventName))
 					continue
 				}
 
@@ -333,55 +308,42 @@ func wireCollaborations(allDomains map[string]*ast.Architecture, nodes map[strin
 func validateCrossOrgVisibility(nodes map[string]*graphNode) []string {
 	var errors []string
 	for _, n := range nodes {
-		for _, dsQN := range n.downstreams {
-			target := nodes[dsQN]
+		for _, dsName := range n.downstreams {
+			target := nodes[dsName]
 			if n.org != "" && target.org != "" && n.org != target.org && !target.isPublic {
 				errors = append(errors, fmt.Sprintf(
-					"%s: %q is not public — only public components can receive calls across organizations (%s -> %s)",
-					target.domain, target.name, n.org, target.org))
+					"%q is not public — only public components can receive calls across organizations (%s -> %s)",
+					target.name, n.org, target.org))
 			}
 		}
 	}
 	return errors
 }
 
-func resolveRef(currentDomain string, ref ast.ComponentRef, aliases map[string]string, line int, nodes map[string]*graphNode) (string, string) {
-	if ref.Domain == "" {
-		qn := currentDomain + "." + ref.Name
-		if _, ok := nodes[qn]; !ok {
-			return "", fmt.Sprintf("line %d: undeclared %q in domain %q", line, ref.Name, currentDomain)
-		}
-		return qn, ""
+func resolveRef(ref ast.ComponentRef, line int, nodes map[string]*graphNode) (string, string) {
+	// Reconstruct the name as written
+	name := ref.Name
+	if ref.Domain != "" {
+		name = ref.Domain + "." + ref.Name
 	}
 
-	realDomain, ok := aliases[ref.Domain]
-	if !ok {
-		return "", fmt.Sprintf("line %d: domain alias %q not imported", line, ref.Domain)
+	// 1. Direct lookup by name
+	if _, ok := nodes[name]; ok {
+		return name, ""
 	}
 
-	qn := realDomain + "." + ref.Name
-	if _, ok := nodes[qn]; !ok {
-		return "", fmt.Sprintf("line %d: undeclared %q in domain %q", line, ref.Name, realDomain)
-	}
-	return qn, ""
-}
-
-func collectImports(arch *ast.Architecture) []*ast.ImportStatement {
-	var imports []*ast.ImportStatement
-	for _, stmt := range arch.Statements {
-		if imp, ok := stmt.(*ast.ImportStatement); ok {
-			imports = append(imports, imp)
+	// 2. Try org/name syntax: "banks/bank_api" means component "bank_api" in org "banks"
+	if i := strings.LastIndex(name, "/"); i > 0 {
+		orgName := name[:i]
+		compName := name[i+1:]
+		for nodeName, n := range nodes {
+			if n.name == compName && n.org == orgName {
+				return nodeName, ""
+			}
 		}
 	}
-	return imports
-}
 
-func buildAliasMap(imports []*ast.ImportStatement) map[string]string {
-	m := make(map[string]string)
-	for _, imp := range imports {
-		m[imp.Alias] = imp.Domain
-	}
-	return m
+	return "", fmt.Sprintf("line %d: undeclared %q", line, name)
 }
 
 func generateCode(g *builtGraph, packageName string) ([]byte, error) {
@@ -391,24 +353,10 @@ func generateCode(g *builtGraph, packageName string) ([]byte, error) {
 	fmt.Fprintf(&buf, "package %s\n\n", packageName)
 	buf.WriteString("import \"github.com/mcabezas/archlang/graph\"\n\n")
 
-	// Collect unique domains
-	domainSet := make(map[string]bool)
-	for _, qn := range g.order {
-		d := g.nodes[qn].domain
-		if d != "" {
-			domainSet[d] = true
-		}
-	}
-	var domainNames []string
-	for d := range domainSet {
-		domainNames = append(domainNames, d)
-	}
-	sort.Strings(domainNames)
-
 	// Collect unique orgs
 	orgSet := make(map[string]bool)
-	for _, qn := range g.order {
-		o := g.nodes[qn].org
+	for _, name := range g.order {
+		o := g.nodes[name].org
 		if o != "" {
 			orgSet[o] = true
 		}
@@ -419,27 +367,22 @@ func generateCode(g *builtGraph, packageName string) ([]byte, error) {
 	}
 	sort.Strings(orgNames)
 
-	// Org and Domain constants
-	buf.WriteString("const (\n")
-	for _, o := range orgNames {
-		fmt.Fprintf(&buf, "\t%s graph.Org = %q\n", toGoName(o), o)
+	// Org constants
+	if len(orgNames) > 0 {
+		buf.WriteString("const (\n")
+		for _, o := range orgNames {
+			fmt.Fprintf(&buf, "\t%s graph.Org = %q\n", toGoName(o), o)
+		}
+		buf.WriteString(")\n\n")
 	}
-	if len(orgNames) > 0 && len(domainNames) > 0 {
-		buf.WriteString("\n")
-	}
-	for _, d := range domainNames {
-		fmt.Fprintf(&buf, "\t%s graph.Domain = %q\n", toGoName(d), d)
-	}
-	buf.WriteString(")\n\n")
 
 	// Variable declarations
 	buf.WriteString("var (\n")
-	for _, qn := range g.order {
-		n := g.nodes[qn]
-		varName := toGoName(qn)
-		domainConst := toGoName(n.domain)
+	for _, name := range g.order {
+		n := g.nodes[name]
+		varName := toGoName(name)
 
-		opts := fmt.Sprintf("graph.WithName(%q), graph.WithDomain(%s)", n.name, domainConst)
+		opts := fmt.Sprintf("graph.WithName(%q)", n.name)
 		if n.org != "" {
 			opts += fmt.Sprintf(", graph.WithOrg(%s)", toGoName(n.org))
 		}
@@ -463,21 +406,21 @@ func generateCode(g *builtGraph, packageName string) ([]byte, error) {
 
 	// AllComponents slice
 	buf.WriteString("var AllComponents = []graph.Component{\n")
-	for _, qn := range g.order {
-		fmt.Fprintf(&buf, "\t%s,\n", toGoName(qn))
+	for _, name := range g.order {
+		fmt.Fprintf(&buf, "\t%s,\n", toGoName(name))
 	}
 	buf.WriteString("}\n\n")
 
 	// Services slice
 	var services []string
-	for _, qn := range g.order {
-		if g.nodes[qn].isService {
-			services = append(services, qn)
+	for _, name := range g.order {
+		if g.nodes[name].isService {
+			services = append(services, name)
 		}
 	}
 	buf.WriteString("var AllServices = []graph.Component{\n")
-	for _, qn := range services {
-		fmt.Fprintf(&buf, "\t%s,\n", toGoName(qn))
+	for _, name := range services {
+		fmt.Fprintf(&buf, "\t%s,\n", toGoName(name))
 	}
 	buf.WriteString("}\n\n")
 
@@ -488,13 +431,13 @@ func generateCode(g *builtGraph, packageName string) ([]byte, error) {
 	buf.WriteString("var AllGraphs = func() []*graph.Graph {\n")
 	for i, comp := range components {
 		fmt.Fprintf(&buf, "\tg%d := graph.NewGraph()\n", i)
-		for _, qn := range comp {
-			fmt.Fprintf(&buf, "\tg%d.Register(%q, %s)\n", i, qn, toGoName(qn))
+		for _, name := range comp {
+			fmt.Fprintf(&buf, "\tg%d.Register(%q, %s)\n", i, name, toGoName(name))
 		}
 		// Emit edges for this connected component
 		compSet := make(map[string]bool)
-		for _, qn := range comp {
-			compSet[qn] = true
+		for _, name := range comp {
+			compSet[name] = true
 		}
 		// Map edge index to generated variable name for wiring publishes
 		edgeVars := make(map[int]string)
@@ -581,72 +524,6 @@ func generateCode(g *builtGraph, packageName string) ([]byte, error) {
 		fmt.Fprintf(&buf, "g%d", i)
 	}
 	buf.WriteString("}\n")
-	buf.WriteString("}()\n\n")
-
-	// Domain-level variables
-	for _, d := range domainNames {
-		varName := "Domain" + toGoName(d)
-		domainConst := toGoName(d)
-		opts := fmt.Sprintf("graph.WithName(%q), graph.WithDomain(%s)", d, domainConst)
-		// Infer org from any node in this domain
-		for _, qn := range g.order {
-			if g.nodes[qn].domain == d && g.nodes[qn].org != "" {
-				opts += fmt.Sprintf(", graph.WithOrg(%s)", toGoName(g.nodes[qn].org))
-				break
-			}
-		}
-		fmt.Fprintf(&buf, "var %s = graph.NewComponent(%s)\n", varName, opts)
-	}
-	buf.WriteString("\n")
-
-	// Build domain-level edges (cross-domain connections)
-	type domainEdge struct{ from, to string }
-	domainEdgeSet := make(map[domainEdge]bool)
-	for _, qn := range g.order {
-		n := g.nodes[qn]
-		for _, dsQN := range n.downstreams {
-			target := g.nodes[dsQN]
-			if n.domain != target.domain {
-				domainEdgeSet[domainEdge{n.domain, target.domain}] = true
-			}
-		}
-	}
-
-	// Partition domains into connected components
-	domainGraph := &builtGraph{
-		nodes: make(map[string]*graphNode),
-		order: domainNames,
-	}
-	for _, d := range domainNames {
-		domainGraph.nodes[d] = &graphNode{qualifiedName: d, name: d, domain: d}
-	}
-	for edge := range domainEdgeSet {
-		domainGraph.nodes[edge.from].downstreams = append(domainGraph.nodes[edge.from].downstreams, edge.to)
-	}
-	domainComponents := connectedComponents(domainGraph)
-
-	// AllDomainGraphs
-	buf.WriteString("var AllDomainGraphs = func() []*graph.Graph {\n")
-	for i, comp := range domainComponents {
-		fmt.Fprintf(&buf, "\td%d := graph.NewGraph()\n", i)
-		for _, d := range comp {
-			fmt.Fprintf(&buf, "\td%d.Register(%q, Domain%s)\n", i, d, toGoName(d))
-		}
-		for _, d := range comp {
-			for _, ds := range domainGraph.nodes[d].downstreams {
-				fmt.Fprintf(&buf, "\td%d.AddDownstream(Domain%s, Domain%s)\n", i, toGoName(d), toGoName(ds))
-			}
-		}
-		buf.WriteString("\n")
-	}
-	buf.WriteString("\treturn []*graph.Graph{")
-	for i := range domainComponents {
-		if i > 0 {
-			buf.WriteString(", ")
-		}
-		fmt.Fprintf(&buf, "d%d", i)
-	}
-	buf.WriteString("}\n")
 	buf.WriteString("}()\n")
 
 	return format.Source(buf.Bytes())
@@ -659,29 +536,29 @@ func connectedComponents(g *builtGraph) [][]string {
 	neighbors := make(map[string]map[string]bool)
 
 	// Build undirected adjacency
-	for _, qn := range g.order {
-		if neighbors[qn] == nil {
-			neighbors[qn] = make(map[string]bool)
+	for _, name := range g.order {
+		if neighbors[name] == nil {
+			neighbors[name] = make(map[string]bool)
 		}
-		n := g.nodes[qn]
-		for _, dsQN := range n.downstreams {
-			neighbors[qn][dsQN] = true
-			if neighbors[dsQN] == nil {
-				neighbors[dsQN] = make(map[string]bool)
+		n := g.nodes[name]
+		for _, dsName := range n.downstreams {
+			neighbors[name][dsName] = true
+			if neighbors[dsName] == nil {
+				neighbors[dsName] = make(map[string]bool)
 			}
-			neighbors[dsQN][qn] = true
+			neighbors[dsName][name] = true
 		}
 	}
 
 	var components [][]string
-	for _, qn := range g.order {
-		if visited[qn] {
+	for _, name := range g.order {
+		if visited[name] {
 			continue
 		}
 		// BFS
 		var comp []string
-		queue := []string{qn}
-		visited[qn] = true
+		queue := []string{name}
+		visited[name] = true
 		for len(queue) > 0 {
 			cur := queue[0]
 			queue = queue[1:]
@@ -700,14 +577,13 @@ func connectedComponents(g *builtGraph) [][]string {
 	return components
 }
 
-// inferOrg extracts the org name from a domain path.
-// If the domain starts with "orgs/<name>/...", the org is "<name>".
-// Otherwise, the component has no org.
-func inferOrg(domain string) string {
-	if !strings.HasPrefix(domain, "orgs/") {
+// inferOrg extracts the org name from a folder path.
+// If the folder starts with "orgs/<name>/..." or is "orgs/<name>", the org is "<name>".
+func inferOrg(folder string) string {
+	if !strings.HasPrefix(folder, "orgs/") {
 		return ""
 	}
-	rest := strings.TrimPrefix(domain, "orgs/")
+	rest := strings.TrimPrefix(folder, "orgs/")
 	if i := strings.Index(rest, "/"); i > 0 {
 		return rest[:i]
 	}
@@ -726,10 +602,10 @@ func toGoName(name string) string {
 	return strings.Join(parts, "")
 }
 
-// discoverDomains walks the directory tree and returns a map of
-// domain name to concatenated .arch file contents.
-func discoverDomains(root string) (map[string]string, error) {
-	domains := make(map[string]string)
+// discoverSources walks the directory tree and returns a map of
+// folder path to concatenated .arch file contents.
+func discoverSources(root string) (map[string]string, error) {
+	sources := make(map[string]string)
 
 	err := filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
@@ -752,12 +628,12 @@ func discoverDomains(root string) (map[string]string, error) {
 			return err
 		}
 
-		domainName := rel
-		if domainName == "." {
-			domainName = filepath.Base(root)
+		folder := rel
+		if folder == "." {
+			folder = filepath.Base(root)
 		}
 
-		domains[domainName] = input
+		sources[folder] = input
 		return nil
 	})
 
@@ -765,7 +641,7 @@ func discoverDomains(root string) (map[string]string, error) {
 		return nil, fmt.Errorf("cannot walk directory %q: %w", root, err)
 	}
 
-	return domains, nil
+	return sources, nil
 }
 
 func readArchFiles(dir string) (string, error) {
