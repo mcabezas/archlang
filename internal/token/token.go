@@ -12,6 +12,7 @@ const (
 	// Keywords
 	COMPONENT     = "COMPONENT"
 	SERVICE       = "SERVICE"
+	EVENT         = "EVENT"
 	COLLABORATION = "COLLABORATION"
 	IMPORT        = "IMPORT"
 	AS            = "AS"
@@ -25,21 +26,26 @@ const (
 	CARDINALITY = "CARDINALITY"
 	FLOW        = "FLOW"
 	STEP        = "STEP"
+	EXECUTE     = "EXECUTE"
+	PUBLISHES   = "PUBLISHES"
 
 	// Operators
-	ARROW  = "->"
-	DOT    = "."
-	COLON  = ":"
-	ASSIGN = "="
-	COMMA  = ","
+	ARROW         = "->"
+	REVERSE_ARROW = "<-"
+	DOT           = "."
+	COLON         = ":"
+	ASSIGN        = "="
+	COMMA         = ","
 
 	// Literals
 	NUMBER = "NUMBER"
 	STRING = "STRING"
 
 	// Delimiters
-	LBRACE = "{"
-	RBRACE = "}"
+	LBRACE   = "{"
+	RBRACE   = "}"
+	LBRACKET = "["
+	RBRACKET = "]"
 )
 
 type Token struct {
@@ -52,6 +58,7 @@ type Token struct {
 var keywords = map[string]TokenType{
 	"component":     COMPONENT,
 	"service":       SERVICE,
+	"event":         EVENT,
 	"collaboration": COLLABORATION,
 	"import":        IMPORT,
 	"as":            AS,
@@ -64,6 +71,8 @@ var keywords = map[string]TokenType{
 	"cardinality":   CARDINALITY,
 	"flow":          FLOW,
 	"step":          STEP,
+	"execute":       EXECUTE,
+	"publishes":     PUBLISHES,
 }
 
 func LookupIdent(ident string) TokenType {

@@ -59,6 +59,8 @@ func (p *Parser) parseStatement() ast.Statement {
 		return p.parseServiceStatement(false)
 	case token.INFRA:
 		return p.parseInfraStatement(false)
+	case token.EVENT:
+		return p.parseEventStatement()
 	case token.COLLABORATION:
 		return p.parseCollaborationStatement()
 	case token.FEATURE:
@@ -122,6 +124,12 @@ func (p *Parser) parseServiceStatement(public bool) *ast.ServiceStatement {
 	}
 
 	stmt.Name = p.curToken.Literal
+
+	// Optional description
+	if p.peekTokenIs(token.STRING) {
+		p.nextToken()
+		stmt.Description = p.curToken.Literal
+	}
 
 	if p.peekTokenIs(token.LBRACE) {
 		p.nextToken() // consume {
@@ -193,6 +201,23 @@ func (p *Parser) parseImportStatement() *ast.ImportStatement {
 	return stmt
 }
 
+func (p *Parser) parseEventStatement() *ast.EventStatement {
+	stmt := &ast.EventStatement{Token: p.curToken}
+
+	if !p.expectPeek(token.IDENT) {
+		return nil
+	}
+	stmt.Name = p.curToken.Literal
+
+	// Optional description
+	if p.peekTokenIs(token.STRING) {
+		p.nextToken()
+		stmt.Description = p.curToken.Literal
+	}
+
+	return stmt
+}
+
 func (p *Parser) parseCollaborationStatement() *ast.CollaborationStatement {
 	stmt := &ast.CollaborationStatement{Token: p.curToken}
 
@@ -201,7 +226,14 @@ func (p *Parser) parseCollaborationStatement() *ast.CollaborationStatement {
 	}
 	stmt.Source = p.parseComponentRef()
 
-	if !p.expectPeek(token.ARROW) {
+	// Accept -> or <-
+	if p.peekTokenIs(token.ARROW) {
+		p.nextToken()
+	} else if p.peekTokenIs(token.REVERSE_ARROW) {
+		p.nextToken()
+		stmt.IsReverse = true
+	} else {
+		p.peekError(token.ARROW)
 		return nil
 	}
 
@@ -209,6 +241,11 @@ func (p *Parser) parseCollaborationStatement() *ast.CollaborationStatement {
 		return nil
 	}
 	stmt.Target = p.parseComponentRef()
+
+	// For reverse arrow, swap source and target so the graph edge is target -> source
+	if stmt.IsReverse {
+		stmt.Source, stmt.Target = stmt.Target, stmt.Source
+	}
 
 	// Optional block with one feature + optional description
 	if p.peekTokenIs(token.LBRACE) {
@@ -432,8 +469,31 @@ func (p *Parser) parseCollaborationBlock(stmt *ast.CollaborationStatement) {
 				return
 			}
 			stmt.Step = p.curToken.Literal
+		case token.EXECUTE:
+			if stmt.Execute != "" {
+				p.addError("collaboration block can only contain one execute at line %d, column %d",
+					p.curToken.Line, p.curToken.Column)
+				return
+			}
+			if p.peekTokenIs(token.COLON) {
+				p.nextToken() // consume :
+			}
+			if !p.expectPeek(token.IDENT) {
+				return
+			}
+			stmt.Execute = p.curToken.Literal
+		case token.PUBLISHES:
+			if len(stmt.Publishes) > 0 {
+				p.addError("collaboration block can only contain one publishes at line %d, column %d",
+					p.curToken.Line, p.curToken.Column)
+				return
+			}
+			if p.peekTokenIs(token.COLON) {
+				p.nextToken() // consume :
+			}
+			stmt.Publishes = p.parsePublishesList()
 		default:
-			p.addError("expected feature, description, cardinality, flow, or step, got %s at line %d, column %d",
+			p.addError("expected feature, description, cardinality, flow, step, execute, or publishes, got %s at line %d, column %d",
 				p.curToken.Type, p.curToken.Line, p.curToken.Column)
 			return
 		}
@@ -492,6 +552,35 @@ func (p *Parser) parseCardinalityValue() string {
 	}
 	p.nextToken()
 	return left + ":" + p.curToken.Literal
+}
+
+func (p *Parser) parsePublishesList() []string {
+	// Single event: publishes: EventName
+	// List form: publishes: [EventA, EventB, EventC]
+	if p.peekTokenIs(token.LBRACKET) {
+		p.nextToken() // consume [
+		var events []string
+		for !p.peekTokenIs(token.RBRACKET) && !p.peekTokenIs(token.EOF) {
+			if p.peekTokenIs(token.COMMA) {
+				p.nextToken() // consume ,
+				continue
+			}
+			if !p.expectPeek(token.IDENT) {
+				return events
+			}
+			events = append(events, p.curToken.Literal)
+		}
+		if !p.expectPeek(token.RBRACKET) {
+			return events
+		}
+		return events
+	}
+
+	// Single event
+	if !p.expectPeek(token.IDENT) {
+		return nil
+	}
+	return []string{p.curToken.Literal}
 }
 
 func (p *Parser) parseAttributeStatement() *ast.AttributeStatement {

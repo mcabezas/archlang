@@ -1,0 +1,3 @@
+service orders "Order data owner"
+service beans "Bean inventory manager"
+service barista "Coffee brewer"

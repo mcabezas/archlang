@@ -33,7 +33,7 @@ func (g *Graph) AddDownstream(source, target Component) {
 	g.collaborations = append(g.collaborations, collab)
 }
 
-func (g *Graph) AddCollaboration(source, target Component, feature Feature, description string, cardinality string, cardinalityBy string, flow Flow, step string, stepOrder int) {
+func (g *Graph) AddCollaboration(source, target Component, feature Feature, description string, cardinality string, cardinalityBy string, flow Flow, step string, stepOrder int, execute string) *Collaboration {
 	if cardinality == "" {
 		cardinality = "1:1"
 	}
@@ -47,10 +47,16 @@ func (g *Graph) AddCollaboration(source, target Component, feature Feature, desc
 		Flow:          flow,
 		Step:          step,
 		StepOrder:     stepOrder,
+		Execute:       execute,
 	}
 	sn := source.Base().(*component)
 	sn.collaborations = append(sn.collaborations, collab)
 	g.collaborations = append(g.collaborations, collab)
+	return &g.collaborations[len(g.collaborations)-1]
+}
+
+func (g *Graph) LinkPublish(subscribe *Collaboration, publish *Collaboration) {
+	subscribe.Publishes = append(subscribe.Publishes, publish)
 }
 
 func (g *Graph) Collaborations() []Collaboration {
@@ -68,4 +74,14 @@ func (g *Graph) AllNodes() []Component {
 func (g *Graph) GetNode(qualifiedName string) (Component, bool) {
 	n, ok := g.nodes[qualifiedName]
 	return n, ok
+}
+
+// FindByShortName looks up a component by its short name (e.g. "core-api" instead of "orgs/modo.core-api").
+func (g *Graph) FindByShortName(name string) (Component, bool) {
+	for _, n := range g.nodes {
+		if n.Name() == name {
+			return n, true
+		}
+	}
+	return nil, false
 }

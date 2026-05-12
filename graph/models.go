@@ -17,6 +17,12 @@ type Service struct {
 	RepositoryURL string
 }
 type Infra struct{ Component }
+type Event struct {
+	Component
+	description string
+}
+
+func (e *Event) Description() string { return e.description }
 
 type Domain string
 type Org string
@@ -41,6 +47,8 @@ type Collaboration struct {
 	Flow          Flow
 	Step          string
 	StepOrder     int
+	Execute       string
+	Publishes     []*Collaboration
 }
 
 type Visibility string
@@ -116,6 +124,18 @@ func NewService(options ...NewComponentOption) *Service {
 	return &Service{
 		Component:     &component{name: opts.Name, domain: opts.Domain, org: opts.Org, visibility: opts.visibility()},
 		RepositoryURL: opts.RepositoryURL,
+	}
+}
+
+func NewEvent(description string, options ...NewComponentOption) *Event {
+	opts := &NewComponentOptions{}
+	for _, option := range options {
+		option(opts)
+	}
+
+	return &Event{
+		Component:   &component{name: opts.Name, domain: opts.Domain, org: opts.Org, visibility: opts.visibility()},
+		description: description,
 	}
 }
 

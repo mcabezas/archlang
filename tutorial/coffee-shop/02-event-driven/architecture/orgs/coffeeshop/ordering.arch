@@ -1,0 +1,39 @@
+feature ordering: "Process coffee orders from placement to delivery" {
+
+    collaboration orders -> OrderPlaced
+
+    collaboration beans <- OrderPlaced {
+        execute: validateBeans
+        publishes: OrderBeansValidated
+    }
+
+    collaboration orders <- OrderBeansValidated {
+        execute: acceptOrder
+        publishes: OrderAccepted
+    }
+
+    collaboration barista <- OrderAccepted {
+        execute: makeCoffee
+        publishes: [CoffeeBrewStarted, CoffeeBrewFinished, CoffeeDelivered]
+    }
+
+    collaboration beans <- CoffeeBrewStarted {
+        execute: fetchBeans
+        publishes: BeansFetched
+    }
+
+    collaboration orders <- CoffeeBrewStarted {
+        execute: startOrder
+        publishes: OrderStarted
+    }
+
+    collaboration orders <- CoffeeBrewFinished {
+        execute: finishOrder
+        publishes: OrderFinished
+    }
+
+    collaboration orders <- CoffeeDelivered {
+        execute: deliverOrder
+        publishes: OrderDelivered
+    }
+}

@@ -27,19 +27,31 @@ func main() {
 	sourceDir := os.Args[2]
 	outputDir := "."
 	packageName := "architecture"
+	strict := false
 
-	for i := 3; i < len(os.Args)-1; i++ {
+	for i := 3; i < len(os.Args); i++ {
 		switch os.Args[i] {
 		case "--out":
-			outputDir = os.Args[i+1]
-			i++
+			if i+1 < len(os.Args) {
+				outputDir = os.Args[i+1]
+				i++
+			}
 		case "--package":
-			packageName = os.Args[i+1]
-			i++
+			if i+1 < len(os.Args) {
+				packageName = os.Args[i+1]
+				i++
+			}
+		case "--strict":
+			strict = true
 		}
 	}
 
-	code, err := generator.Generate(sourceDir, packageName)
+	var opts []generator.GenerateOption
+	if strict {
+		opts = append(opts, generator.WithStrict())
+	}
+
+	code, err := generator.Generate(sourceDir, packageName, opts...)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error: %s\n", err)
 		os.Exit(1)

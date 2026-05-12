@@ -17,3 +17,4 @@ A coffee shop where three services — **orders**, **beans**, and **barista** �
 ## Chapters
 
 1. [Service Communication](01-service-communication/) — Declare the services and model their interactions using collaborations
+2. [Event-Driven](02-event-driven/) — Model the coffee shop with events, publish/subscribe, and actions

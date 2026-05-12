@@ -36,10 +36,11 @@ func (cs *ComponentStatement) statementNode()       {}
 func (cs *ComponentStatement) TokenLiteral() string { return cs.Token.Literal }
 
 type ServiceStatement struct {
-	Token    token.Token
-	Name     string
-	Public   bool
-	Frontend bool
+	Token       token.Token
+	Name        string
+	Description string
+	Public      bool
+	Frontend    bool
 }
 
 func (ss *ServiceStatement) statementNode()       {}
@@ -78,6 +79,15 @@ type ComponentRef struct {
 	Name    string
 }
 
+type EventStatement struct {
+	Token       token.Token
+	Name        string
+	Description string
+}
+
+func (es *EventStatement) statementNode()       {}
+func (es *EventStatement) TokenLiteral() string { return es.Token.Literal }
+
 type FeatureStatement struct {
 	Token       token.Token
 	Name        string
@@ -91,14 +101,17 @@ type CollaborationStatement struct {
 	Token         token.Token
 	Source        ComponentRef
 	Target        ComponentRef
-	Feature       string // feature name (reference to declared feature), empty if none
-	Description   string // optional description of how this collaboration works
-	Cardinality   string // "1:1" or "1:N", empty if not specified
-	CardinalityBy string // partitioning key for 1:N (e.g. "account-id")
+	IsReverse     bool     // true if using <- operator (subscribe)
+	Feature       string   // feature name (reference to declared feature), empty if none
+	Description   string   // optional description of how this collaboration works
+	Cardinality   string   // "1:1" or "1:N", empty if not specified
+	CardinalityBy string   // partitioning key for 1:N (e.g. "account-id")
 	Flow            string // flow name, empty if not inside a flow block
 	FlowDescription string // flow description, set from flow block
 	Step            string // step name within a flow
 	StepOrder       int    // order of the step within its flow, inferred from definition order
+	Execute         string   // action executed on subscribe, only valid on event collaborations
+	Publishes       []string // events published as a result of this collaboration
 }
 
 func (cs *CollaborationStatement) statementNode()       {}

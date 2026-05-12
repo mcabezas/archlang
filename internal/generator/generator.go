@@ -14,9 +14,19 @@ import (
 	"github.com/mcabezas/archlang/internal/parser"
 )
 
+type generateConfig struct {
+	strict bool
+}
+
+type GenerateOption func(*generateConfig)
+
+func WithStrict() GenerateOption {
+	return func(c *generateConfig) { c.strict = true }
+}
+
 // Generate discovers .arch files in dir, parses them, builds the graph,
 // and produces Go source code containing the hardcoded graph.
-func Generate(dir string, packageName string) ([]byte, error) {
+func Generate(dir string, packageName string, opts ...GenerateOption) ([]byte, error) {
 	domains, err := discoverDomains(dir)
 	if err != nil {
 		return nil, err
@@ -38,9 +48,20 @@ func Generate(dir string, packageName string) ([]byte, error) {
 		parsed[domain] = arch
 	}
 
+	cfg := &generateConfig{}
+	for _, o := range opts {
+		o(cfg)
+	}
+
 	g, errs := buildGraph(parsed)
 	if len(errs) > 0 {
 		return nil, fmt.Errorf("compile errors:\n  %s", strings.Join(errs, "\n  "))
+	}
+
+	if cfg.strict {
+		for _, w := range g.warnings {
+			fmt.Fprintf(os.Stderr, "%s\n", w)
+		}
 	}
 
 	return generateCode(g, packageName)
@@ -54,6 +75,8 @@ type graphNode struct {
 	org           string
 	isService     bool
 	isInfra       bool
+	isEvent       bool
+	eventDesc     string
 	isPublic      bool
 	downstreams   []string // qualified names
 	upstreams     []string // qualified names
@@ -70,6 +93,8 @@ type graphEdge struct {
 	flowDescription string // flow description
 	step            string // step name within a flow
 	stepOrder       int    // order of the step within its flow
+	execute         string   // action name for event collaborations
+	publishEdges    []int    // indices into edges slice for published events
 }
 
 type featureDecl struct {
@@ -83,6 +108,7 @@ type builtGraph struct {
 	order    []string // sorted qualified names
 	edges    []graphEdge
 	features map[string]*featureDecl // name -> declaration
+	warnings []string
 }
 
 func buildGraph(allDomains map[string]*ast.Architecture) (*builtGraph, []string) {
@@ -101,7 +127,16 @@ func buildGraph(allDomains map[string]*ast.Architecture) (*builtGraph, []string)
 	}
 	sort.Strings(order)
 
-	return &builtGraph{nodes: nodes, order: order, edges: edges, features: features}, errors
+	// Detect orphan events (published but no subscribers)
+	var warnings []string
+	for _, qn := range order {
+		n := nodes[qn]
+		if n.isEvent && len(n.downstreams) == 0 {
+			warnings = append(warnings, fmt.Sprintf("warning: event %q is published but has no subscribers", n.name))
+		}
+	}
+
+	return &builtGraph{nodes: nodes, order: order, edges: edges, features: features, warnings: warnings}, errors
 }
 
 func registerDeclarations(allDomains map[string]*ast.Architecture, nodes map[string]*graphNode, features map[string]*featureDecl) []string {
@@ -154,6 +189,20 @@ func registerDeclarations(allDomains map[string]*ast.Architecture, nodes map[str
 					org:           org,
 					isInfra:       true,
 					isPublic:      s.Public,
+				}
+			case *ast.EventStatement:
+				qn := domain + "." + s.Name
+				if _, exists := nodes[qn]; exists {
+					errors = append(errors, fmt.Sprintf("%s: line %d: duplicate declaration %q", domain, s.Token.Line, s.Name))
+					continue
+				}
+				nodes[qn] = &graphNode{
+					qualifiedName: qn,
+					name:          s.Name,
+					domain:        domain,
+					org:           org,
+					isEvent:       true,
+					eventDesc:     s.Description,
 				}
 			case *ast.FeatureStatement:
 				if _, exists := features[s.Name]; exists {
@@ -219,18 +268,62 @@ func wireCollaborations(allDomains map[string]*ast.Architecture, nodes map[strin
 					"%s: line %d: step %q requires a flow", domain, s.Token.Line, s.Step))
 			}
 
+			// Validate execute is only on event collaborations
+			sourceIsEvent := nodes[sourceQN] != nil && nodes[sourceQN].isEvent
+			targetIsEvent := nodes[targetQN] != nil && nodes[targetQN].isEvent
+			if s.Execute != "" && !sourceIsEvent && !targetIsEvent {
+				errors = append(errors, fmt.Sprintf(
+					"%s: line %d: execute is only valid on event collaborations", domain, s.Token.Line))
+			}
+
+			subscribeIdx := len(edges)
 			edges = append(edges, graphEdge{
-				sourceQN:      sourceQN,
-				targetQN:      targetQN,
-				feature:       s.Feature,
-				description:   s.Description,
-				cardinality:   s.Cardinality,
-				cardinalityBy: s.CardinalityBy,
+				sourceQN:        sourceQN,
+				targetQN:        targetQN,
+				feature:         s.Feature,
+				description:     s.Description,
+				cardinality:     s.Cardinality,
+				cardinalityBy:   s.CardinalityBy,
 				flow:            s.Flow,
 				flowDescription: s.FlowDescription,
 				step:            s.Step,
 				stepOrder:       s.StepOrder,
+				execute:         s.Execute,
 			})
+
+			// Expand publishes into edges and wire them to the subscribe edge
+			for i, eventName := range s.Publishes {
+				eventQN, err := resolveRef(domain, ast.ComponentRef{Name: eventName}, domainAliases, s.Token.Line, nodes)
+				if err != "" {
+					errors = append(errors, fmt.Sprintf("%s: %s", domain, err))
+					continue
+				}
+				if nodes[eventQN] != nil && !nodes[eventQN].isEvent {
+					errors = append(errors, fmt.Sprintf(
+						"%s: line %d: publishes target %q is not an event", domain, s.Token.Line, eventName))
+					continue
+				}
+
+				// The publisher is the service that subscribes and reacts.
+				// After swap, for <- collaborations: source=event, target=service.
+				publisherQN := targetQN
+
+				nodes[publisherQN].downstreams = append(nodes[publisherQN].downstreams, eventQN)
+				nodes[eventQN].upstreams = append(nodes[eventQN].upstreams, publisherQN)
+
+				pubIdx := len(edges)
+				edges[subscribeIdx].publishEdges = append(edges[subscribeIdx].publishEdges, pubIdx)
+				edges = append(edges, graphEdge{
+					sourceQN:        publisherQN,
+					targetQN:        eventQN,
+					feature:         s.Feature,
+					description:     s.Description,
+					flow:            s.Flow,
+					flowDescription: s.FlowDescription,
+					execute:         s.Execute,
+					stepOrder:       i + 1,
+				})
+			}
 		}
 	}
 
@@ -354,14 +447,17 @@ func generateCode(g *builtGraph, packageName string) ([]byte, error) {
 			opts += ", graph.WithVisibility(graph.Public)"
 		}
 
-		constructor := "graph.NewComponent"
-		if n.isService {
-			constructor = "graph.NewService"
-		} else if n.isInfra {
-			constructor = "graph.NewInfra"
+		if n.isEvent {
+			fmt.Fprintf(&buf, "\t%s = graph.NewEvent(%q, %s)\n", varName, n.eventDesc, opts)
+		} else {
+			constructor := "graph.NewComponent"
+			if n.isService {
+				constructor = "graph.NewService"
+			} else if n.isInfra {
+				constructor = "graph.NewInfra"
+			}
+			fmt.Fprintf(&buf, "\t%s = %s(%s)\n", varName, constructor, opts)
 		}
-
-		fmt.Fprintf(&buf, "\t%s = %s(%s)\n", varName, constructor, opts)
 	}
 	buf.WriteString(")\n\n")
 
@@ -400,19 +496,25 @@ func generateCode(g *builtGraph, packageName string) ([]byte, error) {
 		for _, qn := range comp {
 			compSet[qn] = true
 		}
-		for _, edge := range g.edges {
+		// Map edge index to generated variable name for wiring publishes
+		edgeVars := make(map[int]string)
+		edgeCounter := 0
+		for ei, edge := range g.edges {
 			if !compSet[edge.sourceQN] {
 				continue
 			}
-			if edge.feature == "" {
+			if edge.feature == "" && edge.execute == "" {
 				fmt.Fprintf(&buf, "\tg%d.AddDownstream(%s, %s)\n", i, toGoName(edge.sourceQN), toGoName(edge.targetQN))
 			} else {
 				fd := g.features[edge.feature]
-				featureLit := fmt.Sprintf("graph.Feature{Name: %q", edge.feature)
-				if fd != nil && fd.description != "" {
-					featureLit += fmt.Sprintf(", Description: %q", fd.description)
+				featureLit := "graph.Feature{}"
+				if edge.feature != "" {
+					featureLit = fmt.Sprintf("graph.Feature{Name: %q", edge.feature)
+					if fd != nil && fd.description != "" {
+						featureLit += fmt.Sprintf(", Description: %q", fd.description)
+					}
+					featureLit += "}"
 				}
-				featureLit += "}"
 				descLit := fmt.Sprintf("%q", edge.description)
 				cardLit := fmt.Sprintf("%q", edge.cardinality)
 				cardByLit := fmt.Sprintf("%q", edge.cardinalityBy)
@@ -426,7 +528,47 @@ func generateCode(g *builtGraph, packageName string) ([]byte, error) {
 				}
 				stepLit := fmt.Sprintf("%q", edge.step)
 				stepOrderLit := fmt.Sprintf("%d", edge.stepOrder)
-				fmt.Fprintf(&buf, "\tg%d.AddCollaboration(%s, %s, %s, %s, %s, %s, %s, %s, %s)\n", i, toGoName(edge.sourceQN), toGoName(edge.targetQN), featureLit, descLit, cardLit, cardByLit, flowLit, stepLit, stepOrderLit)
+				executeLit := fmt.Sprintf("%q", edge.execute)
+
+				if len(edge.publishEdges) > 0 {
+					varName := fmt.Sprintf("e%d", edgeCounter)
+					edgeCounter++
+					edgeVars[ei] = varName
+					fmt.Fprintf(&buf, "\t%s := g%d.AddCollaboration(%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)\n",
+						varName, i, toGoName(edge.sourceQN), toGoName(edge.targetQN), featureLit, descLit, cardLit, cardByLit, flowLit, stepLit, stepOrderLit, executeLit)
+				} else {
+					// Check if this edge is a publish target that needs a variable
+					needsVar := false
+					for _, otherEdge := range g.edges {
+						for _, pubIdx := range otherEdge.publishEdges {
+							if pubIdx == ei {
+								needsVar = true
+							}
+						}
+					}
+					if needsVar {
+						varName := fmt.Sprintf("e%d", edgeCounter)
+						edgeCounter++
+						edgeVars[ei] = varName
+						fmt.Fprintf(&buf, "\t%s := g%d.AddCollaboration(%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)\n",
+							varName, i, toGoName(edge.sourceQN), toGoName(edge.targetQN), featureLit, descLit, cardLit, cardByLit, flowLit, stepLit, stepOrderLit, executeLit)
+					} else {
+						fmt.Fprintf(&buf, "\tg%d.AddCollaboration(%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)\n",
+							i, toGoName(edge.sourceQN), toGoName(edge.targetQN), featureLit, descLit, cardLit, cardByLit, flowLit, stepLit, stepOrderLit, executeLit)
+					}
+				}
+			}
+		}
+		// Wire publish links
+		for ei, edge := range g.edges {
+			subVar, ok := edgeVars[ei]
+			if !ok || len(edge.publishEdges) == 0 {
+				continue
+			}
+			for _, pubIdx := range edge.publishEdges {
+				if pubVar, ok := edgeVars[pubIdx]; ok {
+					fmt.Fprintf(&buf, "\tg%d.LinkPublish(%s, %s)\n", i, subVar, pubVar)
+				}
 			}
 		}
 		buf.WriteString("\n")
