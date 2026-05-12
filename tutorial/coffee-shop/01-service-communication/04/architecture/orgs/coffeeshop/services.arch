@@ -1,0 +1,19 @@
+service orders
+service beans
+service barista
+
+feature ordering: "Process coffee orders from placement to delivery" {
+    collaboration orders -> beans {
+        description: "Validate bean availability for the order"
+    }
+    collaboration orders -> barista {
+        description: "Send accepted order for brewing"
+    }
+    collaboration barista -> beans {
+        description: "Fetch beans for brewing"
+        cardinality: one to many by bean_type
+    }
+    collaboration barista -> orders {
+        description: "Report coffee is delivered"
+    }
+}
