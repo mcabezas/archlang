@@ -1,21 +1,28 @@
-# Cardinality
+# Features
 
-Not every collaboration is one-to-one. When the barista fetches beans, it might need beans from multiple suppliers. When orders notifies about a state change, it might notify multiple channels.
+So far we have services and collaborations. We know who talks to who. But if someone asks "what does this system do?", all we can show them is a list of calls between services. That tells you nothing about the business value.
 
-ArchLang lets you express this:
+A feature is a business capability — the reason these services talk to each other in the first place. In our case, everything we've documented so far exists because of one thing: **ordering coffee**.
 
 ```
-collaboration barista -> beans {
-    description: "Fetch beans for brewing"
-    cardinality: one to many by bean_type
+feature ordering: "Process coffee orders from placement to delivery" {
+    collaboration orders -> beans {
+        description: "Validate bean availability for the order"
+    }
+    collaboration orders -> barista {
+        description: "Send accepted order for brewing"
+    }
+    collaboration barista -> beans {
+        description: "Fetch beans for brewing"
+        cardinality: one to many by bean_type
+    }
+    collaboration barista -> orders {
+        description: "Report coffee is delivered"
+    }
 }
 ```
 
-This says: for each order, the barista may call beans multiple times — once per `bean_type`. The `by` clause tells you what drives the fan-out.
-
-Cardinality options:
-- `one to one` — the default, one call per interaction
-- `one to many by <key>` — one source triggers multiple calls, partitioned by a key
+Same collaborations as before, but now they're grouped under a feature. Every collaboration inside the block automatically belongs to `ordering`. You can trace this feature across the entire system and see every service involved.
 
 Check [`architecture/orgs/coffeeshop/services.arch`](architecture/orgs/coffeeshop/services.arch) for the full file.
 
@@ -23,4 +30,4 @@ Check [`architecture/orgs/coffeeshop/services.arch`](architecture/orgs/coffeesho
 archlang generate ./architecture --out ./generated --package generated
 ```
 
-Our collaborations now carry more detail. But we still don't know *why* these services talk to each other — what business capability they serve. That's what features are for.
+Now we know *what* the system does and *which services* are involved. But the ordering feature has phases — you validate first, then brew, then deliver. Right now the collaborations are just a flat list. That's where flows come in.
