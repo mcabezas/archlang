@@ -266,9 +266,7 @@ import (
 )
 
 func main() {
-	svc := sdk.New(generated.AllGraphs)
-	server := sdk.NewHTTPServer(svc, ":8080")
-	if err := server.Start(); err != nil {
+	if err := sdk.NewHTTPServer(generated.AllGraphs, ":8080").Start(); err != nil {
 		log.Fatal(err)
 	}
 }
@@ -331,10 +329,7 @@ import (
 )
 
 func main() {
-	svc := sdk.New(generated.AllGraphs)
-	mcp := sdk.NewMCPServer(svc)
-
-	if err := mcp.ServeSSE(":9090"); err != nil {
+	if err := sdk.NewMCPServer(generated.AllGraphs).ServeSSE(":9090"); err != nil {
 		log.Fatal(err)
 	}
 }

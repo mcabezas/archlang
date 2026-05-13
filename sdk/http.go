@@ -22,9 +22,9 @@ type HTTPServer struct {
 }
 
 // NewHTTPServer creates a new HTTP server that serves the architecture graph.
-func NewHTTPServer(storage Storage, addr string) *HTTPServer {
+func NewHTTPServer(graphs []*graph.Graph, addr string) *HTTPServer {
 	return &HTTPServer{
-		storage: storage,
+		storage: New(graphs),
 		drawer:  &mermaidDrawer{},
 		addr:    addr,
 	}
