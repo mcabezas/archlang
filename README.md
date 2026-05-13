@@ -23,6 +23,14 @@ When a new team member asks "what depends on the cauldron service?", the answer 
 
 Your code has type safety. Your infrastructure has Terraform. **Your architecture solution knowledge has nothing.**
 
+## What ArchLang Gives You
+
+- **Compiled validation** — Undeclared references, missing services, and visibility violations are caught at build time
+- **Organization boundaries** — Document how your components interact with external vendors. Cross-org visibility is enforced at compile time
+- **Feature tracing** — Trace a business capability across every service, event, and collaboration in your architecture
+- **Queryable API** — REST and MCP endpoints serve the same deterministic answers, every time
+- **AI-agent ready** — Structured, compiled facts for AI agents to reason about — no wiki scraping, no hallucinations
+
 ## The Solution
 
 ArchLang treats architecture like code:
