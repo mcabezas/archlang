@@ -324,7 +324,6 @@ package main
 
 import (
 	"log"
-	"os"
 
 	"your-module/generated"
 
@@ -335,12 +334,7 @@ func main() {
 	svc := sdk.New(generated.AllGraphs)
 	mcp := sdk.NewMCPServer(svc)
 
-	port := os.Getenv("MCP_SERVER_PORT")
-	if port == "" {
-		port = "9090"
-	}
-
-	if err := mcp.ServeSSE(":" + port); err != nil {
+	if err := mcp.ServeSSE(":9090"); err != nil {
 		log.Fatal(err)
 	}
 }
@@ -350,7 +344,7 @@ func main() {
 
 ```bash
 go build -o archlang-mcp ./cmd/mcp
-MCP_SERVER_PORT=9090 ./archlang-mcp
+./archlang-mcp
 ```
 
 #### 3. Configure your AI assistant
