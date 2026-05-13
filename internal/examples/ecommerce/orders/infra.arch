@@ -1,3 +1,0 @@
-component orders-db { infra: db }
-
-collaboration order-management -> orders-db

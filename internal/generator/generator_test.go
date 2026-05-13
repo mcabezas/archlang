@@ -6,7 +6,7 @@ import (
 )
 
 func TestGenerate(t *testing.T) {
-	output, err := Generate("../examples/ecommerce", "architecture")
+	output, err := Generate("../../tutorial/coffee-shop/02-event-driven/architecture", "architecture")
 	if err != nil {
 		t.Fatalf("unexpected error: %s", err)
 	}
@@ -25,59 +25,44 @@ func TestGenerate(t *testing.T) {
 		t.Error("missing graph import")
 	}
 
-	// Check some components are declared as vars
-	for _, name := range []string{
-		"OrderManagement",
-		"PaymentProcessing",
-		"Auth",
-		"LoadBalancer",
-		"Tracking",
-		"Email",
-	} {
+	// Check services
+	for _, name := range []string{"Orders", "Beans", "Barista"} {
 		if !strings.Contains(code, name) {
-			t.Errorf("missing variable declaration for %s", name)
+			t.Errorf("missing variable for %s", name)
 		}
 	}
 
-	// Check service uses NewService with options
+	// Check events
+	for _, name := range []string{"OrderPlaced", "OrderAccepted", "CoffeeBrewStarted"} {
+		if !strings.Contains(code, name) {
+			t.Errorf("missing variable for %s", name)
+		}
+	}
+
 	if !strings.Contains(code, "graph.NewService(") {
 		t.Error("missing NewService constructor")
 	}
 
-	// Check infra uses NewInfra with options
-	if !strings.Contains(code, "graph.NewInfra(") {
-		t.Error("missing NewInfra constructor")
+	if !strings.Contains(code, "graph.NewEvent(") {
+		t.Error("missing NewEvent constructor")
 	}
 
-	// Check WithName is used
-	if !strings.Contains(code, "graph.WithName(") {
-		t.Error("missing WithName option")
-	}
-
-	// Check AllGraphs
 	if !strings.Contains(code, "var AllGraphs") {
 		t.Error("missing AllGraphs declaration")
 	}
 
-	// Check AllComponents uses graph.Component
-	if !strings.Contains(code, "[]graph.Component") {
-		t.Error("missing graph.Component type in slices")
-	}
-
-	// Check edge wiring
-	if !strings.Contains(code, ".AddDownstream(") {
-		t.Error("missing downstream wiring")
-	}
-
-	// Check collaboration with features
 	if !strings.Contains(code, ".AddCollaboration(") {
 		t.Error("missing collaboration wiring")
 	}
+
 	if !strings.Contains(code, "graph.Feature{") {
 		t.Error("missing Feature type in generated code")
 	}
 
-	// Check registration
+	if !strings.Contains(code, ".LinkPublish(") {
+		t.Error("missing LinkPublish wiring")
+	}
+
 	if !strings.Contains(code, ".Register(") {
 		t.Error("missing node registration")
 	}

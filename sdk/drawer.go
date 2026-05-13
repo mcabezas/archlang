@@ -10,15 +10,15 @@ import (
 type mermaidDrawer struct{}
 
 func (d *mermaidDrawer) draw(components []graph.Component) string {
-	var sb strings.Builder
-	sb.WriteString("graph LR\n")
-
-	orgOrder, orgs := groupByOrg(components)
-	writeSubgraphs(&sb, orgOrder, orgs)
-	writeEventClassDef(&sb, components)
-
+	// Collect edges and track which components participate
 	type edgeKey struct{ from, to string }
 	seen := make(map[edgeKey]bool)
+	type edgeInfo struct {
+		from, to, arrow string
+	}
+	var edges []edgeInfo
+	connected := make(map[string]bool)
+
 	for _, c := range components {
 		for _, collab := range c.Collaborations() {
 			key := edgeKey{c.Name(), collab.Target.Name()}
@@ -28,9 +28,30 @@ func (d *mermaidDrawer) draw(components []graph.Component) string {
 				if isEvent(collab.Source) || isEvent(collab.Target) {
 					arrow = "-.->"
 				}
-				fmt.Fprintf(&sb, "  %s %s %s\n", nodeID(c.Name()), arrow, nodeID(collab.Target.Name()))
+				edges = append(edges, edgeInfo{c.Name(), collab.Target.Name(), arrow})
+				connected[c.Name()] = true
+				connected[collab.Target.Name()] = true
 			}
 		}
+	}
+
+	// Filter to only connected components
+	var active []graph.Component
+	for _, c := range components {
+		if connected[c.Name()] {
+			active = append(active, c)
+		}
+	}
+
+	var sb strings.Builder
+	sb.WriteString("graph LR\n")
+
+	orgOrder, orgs := groupByOrg(active)
+	writeSubgraphs(&sb, orgOrder, orgs)
+	writeEventClassDef(&sb, active)
+
+	for _, e := range edges {
+		fmt.Fprintf(&sb, "  %s %s %s\n", nodeID(e.from), e.arrow, nodeID(e.to))
 	}
 
 	return wrapHTML("Architecture Overview", "", sb.String())

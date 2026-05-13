@@ -7,7 +7,7 @@
 
 **Architecture documentation that never lies.**
 
-ArchLang is a programming language for defining solution architectures. It compiles `.arch` files into a typed, queryable knowledge graph — serving architecture facts through a REST API, an MCP server, and a Claude Code skill.
+ArchLang is a declarative language for defining solution architectures as facts. It compiles `.arch` files into a typed, queryable knowledge graph — serving architecture facts through a REST API, an MCP server, and a Claude Code skill.
 
 No more outdated wikis. No more tribal knowledge. No more diagrams that rot the day after they're drawn. If it compiles, it's true.
 
@@ -19,7 +19,7 @@ No more outdated wikis. No more tribal knowledge. No more diagrams that rot the 
 
 Architecture knowledge lives in the worst possible places: Confluence pages nobody updates, Miro boards nobody checks, and the heads of engineers who leave.
 
-When a new team member asks "what depends on the order service?", the answer is a 30-minute meeting. When an AI agent needs to make an implementation decision, it hallucinates one.
+When a new team member asks "what depends on the cauldron service?", the answer is a 30-minute meeting. When an AI agent needs to make an implementation decision, it hallucinates one.
 
 Your code has type safety. Your infrastructure has Terraform. **Your architecture solution knowledge has nothing.**
 
@@ -43,62 +43,84 @@ ArchLang is what happens when you apply the same rigor we already use for code a
 
 ArchLang treats architecture like code:
 
-- **Write it** — Human-readable `.arch` files define components, services, collaborations, features, flows, and steps
-- **Compile it** — The compiler validates everything at build time. Undeclared references, cross-org visibility violations, and missing imports are compile errors — not runtime surprises
+- **Write it** — Human-readable `.arch` files define services, events, collaborations, features, flows, and steps
+- **Compile it** — The compiler validates everything at build time. Undeclared references, cross-org visibility violations, and orphan events are caught — not discovered in production
 - **Query it** — The compiled graph is served through REST and MCP. Same question, same answer, every time
 - **Trace it** — Features, flows, and steps are first-class citizens. Trace a business capability across every collaboration in your architecture
 
 ```
-import orgs/acme
+service cauldron "Potion mixing engine"
+service grimoire "Spell recipe keeper"
+service owl-post "Delivery dispatch"
 
-public service api-gateway
-service order-service
-service payment-service
-public service notification-service
+event PotionBrewed "A potion has been brewed"
+event SpellValidated "A spell recipe has been validated"
+event DeliveryDispatched "An owl has been dispatched"
 
-feature checkout: "Process order payments at checkout" {
-  flow purchase "End-to-end purchase journey" {
-    collaboration api-gateway -> order-service {
-      description: "REST POST /orders"
-      step: initiate
+feature brew-potion: "Brew and deliver a potion" {
+    collaboration grimoire -> SpellValidated
+
+    collaboration cauldron <- SpellValidated {
+        execute: mixIngredients
+        publishes: PotionBrewed
     }
-    collaboration order-service -> payment-service {
-      description: "REST POST /payments with order payload and idempotency key"
-      step: pay
-    }
-  }
-}
 
-feature notifications: "Send transactional notifications" {
-  collaboration order-service -> notification-service {
-    description: "Publishes order events"
-    cardinality: one to many by event_type
-  }
-  collaboration notification-service -> orgs/acme.email-provider {
-    description: "SMTP relay"
-  }
+    collaboration owl-post <- PotionBrewed {
+        execute: dispatchOwl
+        publishes: DeliveryDispatched
+    }
 }
 ```
 
-This compiles. Every reference is validated. Cross-org targets are checked for public visibility. Features, flows, and steps are traced across the entire graph.
+This compiles. Every reference is validated. Events are first-class graph nodes. The `execute` property links a subscription to the action that handles it. The `publishes` property traces the chain of events that follow.
 
 ## Key Concepts
 
-**Components, Services & Infra** — Define what exists in your architecture.
+**Services** — What runs in your architecture. Declared with an optional description: `service cauldron "Potion mixing engine"`.
 
-**Organizations** — Inferred from `orgs/` folder structure. Components that receive cross-org calls must be `public`. Enforced at compile time.
+**Events** — Facts that happened. First-class graph nodes, just like services. Declared with `event PotionBrewed "A potion has been brewed"`. Events must be declared before use.
 
-**Collaborations** — Define how components communicate. Each collaboration can carry a feature, description, cardinality, flow, and step. Duplicate collaborations between the same pair are allowed — one per feature.
+**Collaborations** — How things communicate. Service-to-service (`->`) for direct calls. Service-to-event (`->`) for publishing. Event-to-service (`<-`) for subscribing. Each collaboration can carry a feature, description, cardinality, flow, and step.
 
-**Features** — Declared with a name and description. Can be standalone or wrap a block of collaborations. Trace a feature across the entire graph to see every service involved.
+**Publish / Subscribe** — `collaboration grimoire -> SpellValidated` means grimoire publishes the event. `collaboration cauldron <- SpellValidated { execute: mixIngredients }` means cauldron subscribes and runs `mixIngredients`. The `publishes` property declares what events the handler produces, creating traceable event chains.
 
-**Flows** — Group collaborations into named sequences (e.g. `flow purchase { ... }`). Each flow can have a description. Collaborations inside a flow block are automatically tagged.
+**Organizations** — Inferred from `orgs/` folder structure. Components that receive cross-org calls must be `public`. Reference cross-org components with `org/name` syntax: `collaboration owl-post -> ravens/raven-tower`. No imports needed.
 
-**Steps** — Label a phase within a flow (e.g. `step: initiate`). Multiple collaborations can share the same step. Steps require a flow.
+**Features** — Declared with a name and description. Can be standalone or wrap a block of collaborations. Trace a feature across the entire graph to see every service and event involved.
 
-**Visibility** — `public` or `internal`. Only public components can receive calls from other organizations. A service doesn't need to be public to call external services — only the target must be public. The compiler rejects anything else.
+**Flows & Steps** — Group collaborations into named sequences. Steps label phases within a flow. Steps are ordered automatically by their position in the source.
+
+**Visibility** — `public` or `internal`. Only public components can receive calls from other organizations. The compiler rejects anything else.
+
+**Strict mode** — Pass `--strict` to surface warnings like orphan events (published but nobody subscribes).
 
 ## Syntax
+
+### Events
+
+Declare events and wire them with publish/subscribe collaborations:
+
+```
+event PotionBrewed "A potion has been brewed"
+event PotionBottled "A potion has been bottled"
+
+# Publish — service produces an event
+collaboration cauldron -> PotionBrewed
+
+# Subscribe — service reacts to an event
+collaboration bottler <- PotionBrewed {
+    execute: bottlePotion
+    publishes: PotionBottled
+}
+
+# Multiple publishes from one handler
+collaboration owl-post <- PotionBottled {
+    execute: prepareDelivery
+    publishes: [OwlAssigned, PackageSealed, DeliveryDispatched]
+}
+```
+
+The `execute` property is only valid on event collaborations — using it on service-to-service is a compile error. The `publishes` property targets must be declared events.
 
 ### Collaborations
 
@@ -106,12 +128,12 @@ A collaboration can be plain or carry metadata:
 
 ```
 # Plain — just an edge
-collaboration api-gateway -> order-service
+collaboration grimoire -> cauldron
 
-# With inline feature and description
-collaboration order-service -> payment-service {
-  feature checkout: "REST POST /payments"
-  cardinality: one to many by tenant_id
+# With description and cardinality
+collaboration cauldron -> owl-post {
+    feature brew-potion: "Dispatch brewed potion"
+    cardinality: one to many by region
 }
 ```
 
@@ -120,62 +142,59 @@ collaboration order-service -> payment-service {
 Wrap collaborations in a feature block — all collaborations inside inherit the feature automatically:
 
 ```
-feature checkout: "Process order payments" {
-  collaboration api-gateway -> order-service {
-    description: "REST POST /orders"
-  }
-  collaboration order-service -> payment-service {
-    description: "REST POST /payments"
-    cardinality: 1:N by tenant_id
-  }
+feature brew-potion: "Brew and deliver a potion" {
+    collaboration grimoire -> cauldron {
+        description: "Sends validated spell recipe"
+    }
+    collaboration cauldron -> owl-post {
+        description: "Dispatches brewed potion for delivery"
+    }
 }
 ```
-
-Using inline `feature` inside a feature block is a compile error.
 
 ### Flow Blocks
 
 Group collaborations into named flows with optional descriptions and steps:
 
 ```
-feature checkout: "Process order payments" {
-  flow purchase "End-to-end purchase journey" {
-    collaboration api-gateway -> order-service {
-      description: "REST POST /orders"
-      step: initiate
+feature brew-potion: "Brew and deliver a potion" {
+    flow brewing "From recipe to bottled potion" {
+        collaboration grimoire -> cauldron {
+            description: "Sends validated spell recipe"
+            step: validate
+        }
+        collaboration cauldron -> bottler {
+            description: "Passes brewed potion for bottling"
+            step: bottle
+        }
     }
-    collaboration order-service -> payment-service {
-      description: "REST POST /payments"
-      step: pay
-    }
-  }
 }
 ```
 
-Flow descriptions can be inline (`flow name "description" { ... }`) or block-level (`description: "..."` inside the block).
+### Cross-Org References
 
-Steps are ordered automatically — the compiler infers `sort_order` from their position in the flow definition.
-
-Flows can also be used standalone (outside a feature block) or inline inside a collaboration:
+Reference components in other organizations using `org/name` syntax:
 
 ```
-# Standalone flow block
-flow purchase "End-to-end purchase journey" {
-  collaboration a -> b {
-    feature checkout
-    step: initiate
-  }
-}
-
-# Inline flow inside a collaboration
-collaboration a -> b {
-  feature checkout
-  flow purchase
-  step: initiate
+collaboration owl-post -> ravens/raven-tower {
+    description: "Fallback delivery via raven network"
 }
 ```
 
-Using inline `flow` inside a flow block is a compile error. Steps require a flow.
+No imports needed. The target must be declared `public` in its org.
+
+### Dots in Names
+
+Identifiers can contain dots for namespacing:
+
+```
+event potion.brewed "A potion has been brewed"
+event potion.delivered "A potion has been delivered"
+
+collaboration owl-post <- potion.brewed {
+    execute: dispatchOwl
+}
+```
 
 ## How It Works
 
@@ -208,17 +227,20 @@ go install ./cmd/archlang
 
 ### 1. Define your architecture
 
-Create `.arch` files inside an `architecture/` directory. Organize by domain using folders:
+Create `.arch` files inside an `architecture/` directory. Organize by org using folders:
 
 ```
 architecture/
   orgs/
-    myteam/
+    hogwarts/
       services.arch
-      checkout.arch
-    payments/
+      events.arch
+      potions.arch
+    ravens/
       services.arch
 ```
+
+Names are global — every service, event, and component must be unique. The folder structure determines the org for visibility enforcement.
 
 ### 2. Generate Go code
 
@@ -245,15 +267,14 @@ import (
 )
 
 func main() {
-	svc := sdk.New(generated.AllGraphs, generated.AllDomainGraphs)
+	svc := sdk.New(generated.AllGraphs, nil)
 
 	port := os.Getenv("REST_SERVER_PORT")
 	if port == "" {
 		port = "8080"
 	}
-	addr := ":" + port
 
-	server := sdk.NewHTTPServer(svc, addr)
+	server := sdk.NewHTTPServer(svc, ":"+port)
 	if err := server.Start(); err != nil {
 		log.Fatal(err)
 	}
@@ -265,23 +286,23 @@ The server handles graceful shutdown on `SIGINT`/`SIGTERM` out of the box.
 ### 4. Browse
 
 - **Architecture Overview** — `http://localhost:8080/diagram`
-- **Feature Diagram** — `http://localhost:8080/diagram?feature=checkout`
-- **Component API** — `http://localhost:8080/api/components/orgs/myteam.order-service`
+- **Feature Diagram** — `http://localhost:8080/diagram?feature=brew-potion`
+- **Component API** — `http://localhost:8080/api/components/cauldron`
 
-Diagrams are rendered as interactive Mermaid charts with a dark theme. Feature diagrams include flow and step breakdowns with descriptions.
+Diagrams are rendered as interactive Mermaid charts with a dark theme. Services appear as rectangles, events as stadium shapes in teal with dotted arrows. Feature diagrams include flow and step breakdowns.
 
 ### Custom transports
 
 The generated code is a standalone Go package. You can build your own transport layer on top of the SDK:
 
 ```go
-svc := sdk.New(generated.AllGraphs, generated.AllDomainGraphs)
+svc := sdk.New(generated.AllGraphs, nil)
 
 // Use the SDK directly
 components, _ := svc.ListAll()
 features, _ := svc.ListFeatures()
-component, _ := svc.FindByName("order-service")
-collabs, _ := svc.FindByFlow("purchase")
+component, _ := svc.FindByName("cauldron")
+collabs, _ := svc.FindByFlow("brewing")
 ```
 
 ## MCP Server
@@ -292,10 +313,10 @@ ArchLang ships with a built-in MCP (Model Context Protocol) server that exposes 
 
 | Tool | Description |
 |---|---|
-| `list_components` | List all components with kind, org, domain, and visibility |
+| `list_components` | List all components with kind, org, and visibility |
 | `get_component` | Get a component's full details including upstream and downstream collaborations |
 | `list_features` | List all declared business features |
-| `trace_feature` | Trace a feature across every service, flow, and step |
+| `trace_feature` | Trace a feature across every service, event, flow, and step |
 | `list_flows` | List all declared flows |
 | `trace_flow` | Trace a flow step by step across services |
 | `analyze_impact` | Analyze what would break if a component changes — affected features, flows, and testing recommendations |
@@ -318,16 +339,15 @@ import (
 )
 
 func main() {
-	svc := sdk.New(generated.AllGraphs, generated.AllDomainGraphs)
+	svc := sdk.New(generated.AllGraphs, nil)
 	mcp := sdk.NewMCPServer(svc)
 
 	port := os.Getenv("MCP_SERVER_PORT")
 	if port == "" {
 		port = "9090"
 	}
-	addr := ":" + port
 
-	if err := mcp.ServeSSE(addr); err != nil {
+	if err := mcp.ServeSSE(":" + port); err != nil {
 		log.Fatal(err)
 	}
 }
@@ -373,14 +393,14 @@ cp -r /path/to/archlang/skills/arch ~/.claude/skills/arch
 Once installed, use it in any Claude Code session:
 
 ```
-/arch cross-border-payments          # Trace a feature end to end
-/arch cross-border-payments open     # Trace and open Mermaid diagram in browser
-/copy arch cross-border-payments     # Copy Mermaid diagram to clipboard
+/arch brew-potion                    # Trace a feature end to end
+/arch brew-potion open               # Trace and open Mermaid diagram in browser
+/copy arch brew-potion               # Copy Mermaid diagram to clipboard
 ```
 
 ### What it does
 
-- Queries the MCP server for architecture facts (features, flows, components, impact)
+- Queries the MCP server for architecture facts (features, flows, components, events, impact)
 - Presents results in plain language with Mermaid sequence diagrams
 - Refuses to guess — if the MCP server doesn't have it, it says so
 - Suggests `make mcp-up` if the server isn't running
@@ -388,10 +408,10 @@ Once installed, use it in any Claude Code session:
 ### Example questions via the skill
 
 - *"What services exist in the system?"*
-- *"What depends on the order service?"*
-- *"Trace the checkout feature end to end"*
-- *"What would break if we change the payment service?"*
-- *"How does the purchase flow work step by step?"*
+- *"What depends on the cauldron?"*
+- *"Trace the brew-potion feature end to end"*
+- *"What events does the owl-post service publish?"*
+- *"What would break if we change the grimoire?"*
 
 Every answer comes from the compiled graph — deterministic, accurate, always up to date.
 

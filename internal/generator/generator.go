@@ -371,7 +371,7 @@ func generateCode(g *builtGraph, packageName string) ([]byte, error) {
 	if len(orgNames) > 0 {
 		buf.WriteString("const (\n")
 		for _, o := range orgNames {
-			fmt.Fprintf(&buf, "\t%s graph.Org = %q\n", toGoName(o), o)
+			fmt.Fprintf(&buf, "\tOrg%s graph.Org = %q\n", toGoName(o), o)
 		}
 		buf.WriteString(")\n\n")
 	}
@@ -384,7 +384,7 @@ func generateCode(g *builtGraph, packageName string) ([]byte, error) {
 
 		opts := fmt.Sprintf("graph.WithName(%q)", n.name)
 		if n.org != "" {
-			opts += fmt.Sprintf(", graph.WithOrg(%s)", toGoName(n.org))
+			opts += fmt.Sprintf(", graph.WithOrg(Org%s)", toGoName(n.org))
 		}
 		if n.isPublic {
 			opts += ", graph.WithVisibility(graph.Public)"

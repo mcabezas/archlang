@@ -1,3 +1,0 @@
-component payments-db { infra: db }
-
-collaboration payment-processing -> payments-db

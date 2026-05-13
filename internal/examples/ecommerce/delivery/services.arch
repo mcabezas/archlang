@@ -1,6 +1,0 @@
-service tracking
-service dispatch
-
-collaboration tracking -> push
-collaboration tracking -> delivery-db
-collaboration dispatch -> delivery-db

@@ -1,3 +1,0 @@
-service payment-processing
-
-collaboration payment-processing -> auth

@@ -1,5 +1,0 @@
-component ios-app { frontend }
-component android-app { frontend }
-
-collaboration ios-app -> load-balancer
-collaboration android-app -> load-balancer

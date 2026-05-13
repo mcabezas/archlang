@@ -1,4 +1,0 @@
-component load-balancer { infra: lb }
-
-collaboration load-balancer -> order-management
-collaboration load-balancer -> payment-processing
