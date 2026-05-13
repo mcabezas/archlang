@@ -259,7 +259,6 @@ package main
 
 import (
 	"log"
-	"os"
 
 	"your-module/generated"
 
@@ -267,14 +266,8 @@ import (
 )
 
 func main() {
-	svc := sdk.New(generated.AllGraphs, nil)
-
-	port := os.Getenv("REST_SERVER_PORT")
-	if port == "" {
-		port = "8080"
-	}
-
-	server := sdk.NewHTTPServer(svc, ":"+port)
+	svc := sdk.New(generated.AllGraphs)
+	server := sdk.NewHTTPServer(svc, ":8080")
 	if err := server.Start(); err != nil {
 		log.Fatal(err)
 	}
@@ -296,7 +289,7 @@ Diagrams are rendered as interactive Mermaid charts with a dark theme. Services 
 The generated code is a standalone Go package. You can build your own transport layer on top of the SDK:
 
 ```go
-svc := sdk.New(generated.AllGraphs, nil)
+svc := sdk.New(generated.AllGraphs)
 
 // Use the SDK directly
 components, _ := svc.ListAll()
@@ -339,7 +332,7 @@ import (
 )
 
 func main() {
-	svc := sdk.New(generated.AllGraphs, nil)
+	svc := sdk.New(generated.AllGraphs)
 	mcp := sdk.NewMCPServer(svc)
 
 	port := os.Getenv("MCP_SERVER_PORT")

@@ -52,7 +52,7 @@ func TestFindByName(t *testing.T) {
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
-			storage := New(tc.graphs, nil)
+			storage := New(tc.graphs)
 			node, err := storage.FindByName(tc.name)
 
 			if tc.expectedErr != nil {

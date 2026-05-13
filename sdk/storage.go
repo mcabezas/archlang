@@ -33,8 +33,6 @@ func WithUpperLevels(level int) ComponentFilterOption {
 type Storage interface {
 	ListAll() ([]graph.Component, error)
 	FindByName(name string, options ...ComponentFilterOption) (graph.Component, error)
-	FindByDomain(name string, options ...ComponentFilterOption) (graph.Component, error)
-	ListAllDomains() ([]graph.Component, error)
 	ListFeatures() ([]graph.Feature, error)
 	FindByFeature(name string) ([]graph.Component, error)
 	ListFlows() ([]graph.Flow, error)

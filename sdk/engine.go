@@ -5,12 +5,11 @@ import (
 )
 
 type documentationEngine struct {
-	graphs       []*graph.Graph
-	domainGraphs []*graph.Graph
+	graphs []*graph.Graph
 }
 
-func New(graphs []*graph.Graph, domainGraphs []*graph.Graph) Storage {
-	return &documentationEngine{graphs: graphs, domainGraphs: domainGraphs}
+func New(graphs []*graph.Graph) Storage {
+	return &documentationEngine{graphs: graphs}
 }
 
 func (e *documentationEngine) ListAll() ([]graph.Component, error) {
@@ -25,10 +24,6 @@ func (e *documentationEngine) FindByName(name string, options ...ComponentFilter
 	return e.findBy(e.graphs, name, options...)
 }
 
-func (e *documentationEngine) FindByDomain(name string, options ...ComponentFilterOption) (graph.Component, error) {
-	return e.findBy(e.domainGraphs, name, options...)
-}
-
 func (e *documentationEngine) findBy(graphs []*graph.Graph, name string, options ...ComponentFilterOption) (graph.Component, error) {
 	opts := &ComponentFilterOptions{}
 	for _, o := range options {
@@ -36,7 +31,11 @@ func (e *documentationEngine) findBy(graphs []*graph.Graph, name string, options
 	}
 
 	for _, g := range graphs {
-		if n, ok := g.GetNode(name); ok {
+		n, ok := g.GetNode(name)
+		if !ok {
+			n, ok = g.FindByShortName(name)
+		}
+		if ok {
 			downstream := collectCollaborations(n, opts.NestedLevels,
 				func(c graph.Component) []graph.Collaboration { return c.Collaborations() },
 				func(c graph.Collaboration) graph.Component { return c.Target })
@@ -58,14 +57,6 @@ type filteredComponent struct {
 }
 
 func (f *filteredComponent) Collaborations() []graph.Collaboration { return f.collaborations }
-
-func (e *documentationEngine) ListAllDomains() ([]graph.Component, error) {
-	var all []graph.Component
-	for _, g := range e.domainGraphs {
-		all = append(all, g.AllNodes()...)
-	}
-	return all, nil
-}
 
 func (e *documentationEngine) ListFeatures() ([]graph.Feature, error) {
 	seen := make(map[string]bool)
