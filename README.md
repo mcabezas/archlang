@@ -287,14 +287,36 @@ Diagrams are rendered as interactive Mermaid charts with a dark theme. Services 
 The generated code is a standalone Go package. You can build your own transport layer on top of the SDK:
 
 ```go
-svc := sdk.New(generated.AllGraphs)
+package main
 
-// Use the SDK directly
-components, _ := svc.ListAll()
-features, _ := svc.ListFeatures()
-component, _ := svc.FindByName("cauldron")
-collabs, _ := svc.FindByFlow("brewing")
+import (
+	"encoding/json"
+	"log"
+	"net/http"
+
+	"your-module/generated"
+
+	sdk "github.com/mcabezas/archlang/sdk"
+)
+
+func main() {
+	svc := sdk.New(generated.AllGraphs)
+
+	http.HandleFunc("/components", func(w http.ResponseWriter, r *http.Request) {
+		components, _ := svc.ListAll()
+		json.NewEncoder(w).Encode(components)
+	})
+
+	http.HandleFunc("/features", func(w http.ResponseWriter, r *http.Request) {
+		features, _ := svc.ListFeatures()
+		json.NewEncoder(w).Encode(features)
+	})
+
+	log.Fatal(http.ListenAndServe(":8080", nil))
+}
 ```
+
+The `Storage` interface exposes: `ListAll`, `FindByName`, `ListFeatures`, `FindByFeature`, `ListFlows`, and `FindByFlow`.
 
 ## MCP Server
 
