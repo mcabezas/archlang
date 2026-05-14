@@ -36,7 +36,6 @@ Your code has type safety. Your infrastructure has Terraform. **Your architectur
 - Queries the MCP server for architecture facts (features, flows, components, events, impact)
 - Presents results in plain language with Mermaid sequence diagrams
 - Refuses to guess — if the MCP server doesn't have it, it says so
-- Suggests `make mcp-up` if the server isn't running
 
 ### Example questions
 
