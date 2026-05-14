@@ -15,22 +15,6 @@ No more outdated wikis. No more tribal knowledge. No more diagrams that rot the 
   <img src="doc/archie.jpg" alt="Archie — the ArchLang mascot" width="250">
 </p>
 
-## The Problem
-
-Architecture knowledge lives in the worst possible places: Confluence pages nobody updates, Miro boards nobody checks, and the heads of engineers who leave.
-
-When a new team member asks "what depends on the cauldron service?", the answer is a 30-minute meeting. When an AI agent needs to make an implementation decision, it hallucinates one.
-
-Your code has type safety. Your infrastructure has Terraform. **Your architecture solution knowledge has nothing.**
-
-## What ArchLang Gives You
-
-- **Compiled validation** — Undeclared references, missing services, and visibility violations are caught at build time
-- **Organization boundaries** — Document how your components interact with external vendors. Cross-org visibility is enforced at compile time
-- **Feature tracing** — Trace a business capability across every service, event, and collaboration in your architecture
-- **Queryable API** — REST and MCP endpoints serve the same deterministic answers, every time
-- **AI-agent ready** — Structured, compiled facts for AI agents to reason about — no wiki scraping, no hallucinations
-
 ### What it does
 
 - Queries the MCP server for architecture facts (features, flows, components, events, impact)
@@ -46,6 +30,22 @@ Your code has type safety. Your infrastructure has Terraform. **Your architectur
 - *"What would break if we change featureA at serviceC?"*
 
 Every answer comes from the compiled graph — deterministic, accurate, always up to date.
+
+## The Problem
+
+Architecture knowledge lives in the worst possible places: Confluence pages nobody updates, Miro boards nobody checks, and the heads of engineers who leave.
+
+When a new team member asks "what depends on the cauldron service?", the answer is a 30-minute meeting. When an AI agent needs to make an implementation decision, it hallucinates one.
+
+Your code has type safety. Your infrastructure has Terraform. **Your architecture solution knowledge has nothing.**
+
+## What ArchLang Gives You
+
+- **Compiled validation** — Undeclared references, missing services, and visibility violations are caught at build time
+- **Organization boundaries** — Document how your components interact with external vendors. Cross-org visibility is enforced at compile time
+- **Feature tracing** — Trace a business capability across every service, event, and collaboration in your architecture
+- **Queryable API** — REST and MCP endpoints serve the same deterministic answers, every time
+- **AI-agent ready** — Structured, compiled facts for AI agents to reason about — no wiki scraping, no hallucinations
 
 ## The Solution
 
