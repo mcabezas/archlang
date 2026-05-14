@@ -15,11 +15,11 @@ No more outdated wikis. No more tribal knowledge. No more diagrams that rot the 
   <img src="doc/archie.jpg" alt="Archie — the ArchLang mascot" width="250">
 </p>
 
-### What it does
+### How does it work?
 
-- Queries the MCP server for architecture facts (features, flows, components, events, impact)
-- Presents results in plain language with Mermaid sequence diagrams
-- Refuses to guess — if the MCP server doesn't have it, it says so
+1. **Declare your architecture** — Document the facts of your solution design: services, events, collaborations, features, and flows
+2. **Compile it** — The compiler validates every reference, enforces visibility rules, and catches errors at build time
+3. **Query it** — The compiled graph becomes a knowledge base, queryable through REST and MCP servers
 
 ### Example questions
 
