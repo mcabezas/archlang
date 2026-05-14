@@ -31,6 +31,23 @@ Your code has type safety. Your infrastructure has Terraform. **Your architectur
 - **Queryable API** — REST and MCP endpoints serve the same deterministic answers, every time
 - **AI-agent ready** — Structured, compiled facts for AI agents to reason about — no wiki scraping, no hallucinations
 
+### What it does
+
+- Queries the MCP server for architecture facts (features, flows, components, events, impact)
+- Presents results in plain language with Mermaid sequence diagrams
+- Refuses to guess — if the MCP server doesn't have it, it says so
+- Suggests `make mcp-up` if the server isn't running
+
+### Example questions
+
+- *"What services exist in the system?"*
+- *"What depends on serviceA?"*
+- *"Trace featureA end to end"*
+- *"What events does serviceB publish?"*
+- *"What would break if we change featureA at serviceC?"*
+
+Every answer comes from the compiled graph — deterministic, accurate, always up to date.
+
 ## The Solution
 
 ArchLang treats architecture like code:
@@ -393,23 +410,6 @@ Once installed, use it in any Claude Code session:
 /arch brew-potion open               # Trace and open Mermaid diagram in browser
 /copy arch brew-potion               # Copy Mermaid diagram to clipboard
 ```
-
-### What it does
-
-- Queries the MCP server for architecture facts (features, flows, components, events, impact)
-- Presents results in plain language with Mermaid sequence diagrams
-- Refuses to guess — if the MCP server doesn't have it, it says so
-- Suggests `make mcp-up` if the server isn't running
-
-### Example questions via the skill
-
-- *"What services exist in the system?"*
-- *"What depends on the cauldron?"*
-- *"Trace the brew-potion feature end to end"*
-- *"What events does the owl-post service publish?"*
-- *"What would break if we change the grimoire?"*
-
-Every answer comes from the compiled graph — deterministic, accurate, always up to date.
 
 ## Contributing
 
