@@ -20,6 +20,7 @@ No more outdated wikis. No more tribal knowledge. No more diagrams that rot the 
 1. **Declare your architecture** — Document the facts of your solution design: services, events, collaborations, features, and flows
 2. **Compile it** — The compiler validates every reference, enforces visibility rules, and catches errors at build time
 3. **Query it** — The compiled graph becomes a knowledge base, queryable through REST and MCP servers
+4. **Share it** — Democratize architecture knowledge across your organization. No more tribal knowledge locked in the heads of engineers who left, scattered across wikis, GitHub READMEs, and Confluence pages nobody reads. One compiled graph, accessible to everyone
 
 ### Example questions
 
