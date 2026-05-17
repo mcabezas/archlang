@@ -37,4 +37,6 @@ type Storage interface {
 	FindByFeature(name string) ([]graph.Component, error)
 	ListFlows() ([]graph.Flow, error)
 	FindByFlow(name string) ([]graph.Collaboration, error)
+	ListEvents() ([]graph.Component, error)
+	FindEvent(name string) ([]graph.Component, error)
 }

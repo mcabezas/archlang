@@ -29,7 +29,6 @@ type ComponentStatement struct {
 	Name     string
 	Public   bool
 	Frontend bool
-	Infra    string // "db", "cache", "bus", "lb", or "" for generic
 }
 
 func (cs *ComponentStatement) statementNode()       {}
@@ -41,19 +40,50 @@ type ServiceStatement struct {
 	Description string
 	Public      bool
 	Frontend    bool
+	Platform    string // optional reference to a declared platform
 }
+
+type PlatformStatement struct {
+	Token       token.Token
+	Name        string
+	Description string
+}
+
+func (ps *PlatformStatement) statementNode()       {}
+func (ps *PlatformStatement) TokenLiteral() string { return ps.Token.Literal }
 
 func (ss *ServiceStatement) statementNode()       {}
 func (ss *ServiceStatement) TokenLiteral() string { return ss.Token.Literal }
 
-type InfraStatement struct {
-	Token  token.Token
-	Name   string
-	Public bool
+type BrokerTechnologyStatement struct {
+	Token       token.Token
+	Name        string
+	Description string
 }
 
-func (is *InfraStatement) statementNode()       {}
-func (is *InfraStatement) TokenLiteral() string { return is.Token.Literal }
+func (bs *BrokerTechnologyStatement) statementNode()       {}
+func (bs *BrokerTechnologyStatement) TokenLiteral() string { return bs.Token.Literal }
+
+type CloudProviderStatement struct {
+	Token       token.Token
+	Name        string
+	Description string
+}
+
+func (cs *CloudProviderStatement) statementNode()       {}
+func (cs *CloudProviderStatement) TokenLiteral() string { return cs.Token.Literal }
+
+type MessageBrokerStatement struct {
+	Token            token.Token
+	Name             string
+	Description      string
+	BrokerTechnology string
+	CloudProvider    string
+	Public           bool
+}
+
+func (ms *MessageBrokerStatement) statementNode()       {}
+func (ms *MessageBrokerStatement) TokenLiteral() string { return ms.Token.Literal }
 
 type AttributeStatement struct {
 	Token     token.Token
@@ -71,9 +101,10 @@ type ComponentRef struct {
 }
 
 type EventStatement struct {
-	Token       token.Token
-	Name        string
-	Description string
+	Token         token.Token
+	Name          string
+	Description   string
+	MessageBroker string // optional reference to a declared message_broker
 }
 
 func (es *EventStatement) statementNode()       {}
@@ -103,6 +134,7 @@ type CollaborationStatement struct {
 	StepOrder       int    // order of the step within its flow, inferred from definition order
 	Execute         string   // action executed on subscribe, only valid on event collaborations
 	Publishes       []string // events published as a result of this collaboration
+	DeliveredBy     string   // message_broker ref for subscribe collaborations; inherits from event if omitted
 }
 
 func (cs *CollaborationStatement) statementNode()       {}

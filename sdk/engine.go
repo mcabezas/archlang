@@ -160,3 +160,55 @@ func buildReverseMap(g *graph.Graph) map[graph.Component][]graph.Collaboration {
 	}
 	return rm
 }
+
+func (e *documentationEngine) ListEvents() ([]graph.Component, error) {
+	var events []graph.Component
+	for _, g := range e.graphs {
+		for _, n := range g.AllNodes() {
+			if n.Kind() == graph.KindEvent {
+				events = append(events, n)
+			}
+		}
+	}
+	return events, nil
+}
+
+func (e *documentationEngine) FindEvent(name string) ([]graph.Component, error) {
+	seen := make(map[string]bool)
+	var components []graph.Component
+	add := func(c graph.Component) {
+		if !seen[c.Name()] {
+			seen[c.Name()] = true
+			components = append(components, c)
+		}
+	}
+
+	for _, g := range e.graphs {
+		for _, n := range g.AllNodes() {
+			if n.Kind() == graph.KindEvent && n.Name() == name {
+				add(n)
+				if ev, ok := n.(*graph.Event); ok && ev.MessageBroker() != nil {
+					add(ev.MessageBroker())
+				}
+			}
+		}
+		for _, c := range g.Collaborations() {
+			if c.Target.Kind() == graph.KindEvent && c.Target.Name() == name {
+				add(c.Source)
+				add(c.Target)
+			}
+			if c.Source.Kind() == graph.KindEvent && c.Source.Name() == name {
+				add(c.Source)
+				add(c.Target)
+				if c.DeliveredBy != nil {
+					add(c.DeliveredBy)
+				}
+			}
+		}
+	}
+
+	if len(components) == 0 {
+		return nil, ErrNotFound
+	}
+	return components, nil
+}

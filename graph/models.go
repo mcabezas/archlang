@@ -2,9 +2,25 @@ package graph
 
 const DomainDefault Domain = "default"
 
+// ComponentKind identifies the role of a component in the architecture.
+type ComponentKind string
+
+const (
+	KindService       ComponentKind = "service"
+	KindMessageBroker ComponentKind = "message_broker"
+	KindEvent         ComponentKind = "event"
+	KindComponent     ComponentKind = "component"
+)
+
+// IsInfra reports whether this kind represents infrastructure.
+func (k ComponentKind) IsInfra() bool {
+	return k == KindMessageBroker
+}
+
 // Component is the base type for all elements in the architecture graph.
 type Component interface {
 	Name() string
+	Kind() ComponentKind
 	Collaborations() []Collaboration
 	Domain() Domain
 	Org() Org
@@ -15,14 +31,30 @@ type Component interface {
 type Service struct {
 	Component
 	RepositoryURL string
-}
-type Infra struct{ Component }
-type Event struct {
-	Component
-	description string
+	Platform      string
 }
 
-func (e *Event) Description() string { return e.description }
+func (s *Service) Kind() ComponentKind { return KindService }
+
+type Infra struct{ Component }
+
+type MessageBroker struct {
+	Component
+	BrokerTechnology string
+	CloudProvider    string
+}
+
+func (m *MessageBroker) Kind() ComponentKind { return KindMessageBroker }
+
+type Event struct {
+	Component
+	description   string
+	messageBroker *MessageBroker
+}
+
+func (e *Event) Kind() ComponentKind          { return KindEvent }
+func (e *Event) Description() string          { return e.description }
+func (e *Event) MessageBroker() *MessageBroker { return e.messageBroker }
 
 type Domain string
 type Org string
@@ -49,6 +81,7 @@ type Collaboration struct {
 	StepOrder     int
 	Execute       string
 	Publishes     []*Collaboration
+	DeliveredBy   *MessageBroker // resolved at compile time; inherited from event's published_at if not explicit
 }
 
 type Visibility string
@@ -72,6 +105,8 @@ type NewComponentOptions struct {
 	Org           Org
 	Visibility    Visibility
 	RepositoryURL string
+	MessageBroker *MessageBroker
+	Platform      string
 }
 
 type NewComponentOption func(*NewComponentOptions)
@@ -106,6 +141,18 @@ func WithRepositoryURL(url string) NewComponentOption {
 	}
 }
 
+func WithMessageBrokerComponent(mb *MessageBroker) NewComponentOption {
+	return func(o *NewComponentOptions) {
+		o.MessageBroker = mb
+	}
+}
+
+func WithPlatform(platform string) NewComponentOption {
+	return func(o *NewComponentOptions) {
+		o.Platform = platform
+	}
+}
+
 func NewComponent(options ...NewComponentOption) Component {
 	opts := &NewComponentOptions{}
 	for _, option := range options {
@@ -124,6 +171,7 @@ func NewService(options ...NewComponentOption) *Service {
 	return &Service{
 		Component:     &component{name: opts.Name, domain: opts.Domain, org: opts.Org, visibility: opts.visibility()},
 		RepositoryURL: opts.RepositoryURL,
+		Platform:      opts.Platform,
 	}
 }
 
@@ -134,8 +182,22 @@ func NewEvent(description string, options ...NewComponentOption) *Event {
 	}
 
 	return &Event{
-		Component:   &component{name: opts.Name, domain: opts.Domain, org: opts.Org, visibility: opts.visibility()},
-		description: description,
+		Component:     &component{name: opts.Name, domain: opts.Domain, org: opts.Org, visibility: opts.visibility()},
+		description:   description,
+		messageBroker: opts.MessageBroker,
+	}
+}
+
+func NewMessageBroker(brokerTechnology, cloudProvider string, options ...NewComponentOption) *MessageBroker {
+	opts := &NewComponentOptions{}
+	for _, option := range options {
+		option(opts)
+	}
+
+	return &MessageBroker{
+		Component:        &component{name: opts.Name, domain: opts.Domain, org: opts.Org, visibility: opts.visibility()},
+		BrokerTechnology: brokerTechnology,
+		CloudProvider:    cloudProvider,
 	}
 }
 
@@ -159,6 +221,10 @@ func (o *NewComponentOptions) visibility() Visibility {
 
 func (n *component) Name() string {
 	return n.name
+}
+
+func (n *component) Kind() ComponentKind {
+	return KindComponent
 }
 
 func (n *component) Base() Component {

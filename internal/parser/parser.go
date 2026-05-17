@@ -56,8 +56,14 @@ func (p *Parser) parseStatement() ast.Statement {
 		return p.parseComponentStatement(false)
 	case token.SERVICE:
 		return p.parseServiceStatement(false)
-	case token.INFRA:
-		return p.parseInfraStatement(false)
+	case token.MESSAGE_BROKER:
+		return p.parseMessageBrokerStatement(false)
+	case token.BROKER_TECHNOLOGY:
+		return p.parseBrokerTechnologyStatement()
+	case token.CLOUD_PROVIDER:
+		return p.parseCloudProviderStatement()
+	case token.PLATFORM:
+		return p.parsePlatformStatement()
 	case token.EVENT:
 		return p.parseEventStatement()
 	case token.COLLABORATION:
@@ -89,10 +95,10 @@ func (p *Parser) parseVisibilityStatement() ast.Statement {
 		return p.parseComponentStatement(isPublic)
 	case token.SERVICE:
 		return p.parseServiceStatement(isPublic)
-	case token.INFRA:
-		return p.parseInfraStatement(isPublic)
+	case token.MESSAGE_BROKER:
+		return p.parseMessageBrokerStatement(isPublic)
 	default:
-		p.addError("expected component, service, or infra after visibility modifier at line %d, column %d",
+		p.addError("expected component, service, or message_broker after visibility modifier at line %d, column %d",
 			p.curToken.Line, p.curToken.Column)
 		return nil
 	}
@@ -109,7 +115,7 @@ func (p *Parser) parseComponentStatement(public bool) *ast.ComponentStatement {
 
 	if p.peekTokenIs(token.LBRACE) {
 		p.nextToken() // consume {
-		p.parseComponentAttributes(&stmt.Frontend, &stmt.Infra)
+		p.parseComponentAttributes(&stmt.Frontend)
 	}
 
 	return stmt
@@ -132,35 +138,21 @@ func (p *Parser) parseServiceStatement(public bool) *ast.ServiceStatement {
 
 	if p.peekTokenIs(token.LBRACE) {
 		p.nextToken() // consume {
-		p.parseComponentAttributes(&stmt.Frontend, nil)
+		p.parseServiceBlock(stmt)
 	}
 
 	return stmt
 }
 
-func (p *Parser) parseInfraStatement(public bool) *ast.InfraStatement {
-	stmt := &ast.InfraStatement{Token: p.curToken, Public: public}
-
-	if !p.expectPeek(token.IDENT) {
-		return nil
-	}
-
-	stmt.Name = p.curToken.Literal
-
-	return stmt
-}
-
-func (p *Parser) parseComponentAttributes(frontend *bool, infra *string) {
+func (p *Parser) parseServiceBlock(stmt *ast.ServiceStatement) {
 	for !p.peekTokenIs(token.RBRACE) && !p.peekTokenIs(token.EOF) {
 		p.nextToken()
 		switch p.curToken.Type {
-		case token.COMMA:
-			continue
 		case token.FRONTEND:
-			*frontend = true
-		case token.INFRA:
-			if infra == nil {
-				p.addError("infra type not allowed on services at line %d", p.curToken.Line)
+			stmt.Frontend = true
+		case token.PLATFORM:
+			if stmt.Platform != "" {
+				p.addError("service block can only contain one platform at line %d", p.curToken.Line)
 				return
 			}
 			if !p.expectPeek(token.COLON) {
@@ -169,7 +161,134 @@ func (p *Parser) parseComponentAttributes(frontend *bool, infra *string) {
 			if !p.expectPeek(token.IDENT) {
 				return
 			}
-			*infra = p.curToken.Literal
+			stmt.Platform = p.curToken.Literal
+		default:
+			p.addError("expected frontend or platform in service block, got %s at line %d",
+				p.curToken.Type, p.curToken.Line)
+			return
+		}
+	}
+	if !p.expectPeek(token.RBRACE) {
+		return
+	}
+}
+
+func (p *Parser) parsePlatformStatement() *ast.PlatformStatement {
+	stmt := &ast.PlatformStatement{Token: p.curToken}
+
+	if !p.expectPeek(token.IDENT) {
+		return nil
+	}
+	stmt.Name = p.curToken.Literal
+
+	if p.peekTokenIs(token.STRING) {
+		p.nextToken()
+		stmt.Description = p.curToken.Literal
+	}
+
+	return stmt
+}
+
+func (p *Parser) parseBrokerTechnologyStatement() *ast.BrokerTechnologyStatement {
+	stmt := &ast.BrokerTechnologyStatement{Token: p.curToken}
+
+	if !p.expectPeek(token.IDENT) {
+		return nil
+	}
+	stmt.Name = p.curToken.Literal
+
+	if p.peekTokenIs(token.STRING) {
+		p.nextToken()
+		stmt.Description = p.curToken.Literal
+	}
+
+	return stmt
+}
+
+func (p *Parser) parseCloudProviderStatement() *ast.CloudProviderStatement {
+	stmt := &ast.CloudProviderStatement{Token: p.curToken}
+
+	if !p.expectPeek(token.IDENT) {
+		return nil
+	}
+	stmt.Name = p.curToken.Literal
+
+	if p.peekTokenIs(token.STRING) {
+		p.nextToken()
+		stmt.Description = p.curToken.Literal
+	}
+
+	return stmt
+}
+
+func (p *Parser) parseMessageBrokerStatement(public bool) *ast.MessageBrokerStatement {
+	stmt := &ast.MessageBrokerStatement{Token: p.curToken, Public: public}
+
+	if !p.expectPeek(token.IDENT) {
+		return nil
+	}
+	stmt.Name = p.curToken.Literal
+
+	if p.peekTokenIs(token.STRING) {
+		p.nextToken()
+		stmt.Description = p.curToken.Literal
+	}
+
+	if p.peekTokenIs(token.LBRACE) {
+		p.nextToken() // consume {
+		p.parseMessageBrokerBlock(stmt)
+	}
+
+	return stmt
+}
+
+func (p *Parser) parseMessageBrokerBlock(stmt *ast.MessageBrokerStatement) {
+	for !p.peekTokenIs(token.RBRACE) && !p.peekTokenIs(token.EOF) {
+		p.nextToken()
+		switch p.curToken.Type {
+		case token.TECHNOLOGY:
+			if stmt.BrokerTechnology != "" {
+				p.addError("message_broker block can only contain one technology at line %d", p.curToken.Line)
+				return
+			}
+			if !p.expectPeek(token.COLON) {
+				return
+			}
+			if !p.expectPeek(token.IDENT) {
+				return
+			}
+			stmt.BrokerTechnology = p.curToken.Literal
+		case token.CLOUD:
+			if stmt.CloudProvider != "" {
+				p.addError("message_broker block can only contain one cloud at line %d", p.curToken.Line)
+				return
+			}
+			if !p.expectPeek(token.COLON) {
+				return
+			}
+			if !p.expectPeek(token.IDENT) {
+				return
+			}
+			stmt.CloudProvider = p.curToken.Literal
+		default:
+			p.addError("expected technology or cloud in message_broker block, got %s at line %d",
+				p.curToken.Type, p.curToken.Line)
+			return
+		}
+	}
+	if !p.expectPeek(token.RBRACE) {
+		return
+	}
+}
+
+func (p *Parser) parseComponentAttributes(frontend *bool) {
+	for !p.peekTokenIs(token.RBRACE) && !p.peekTokenIs(token.EOF) {
+		p.nextToken()
+		switch p.curToken.Type {
+		case token.COMMA:
+			continue
+		case token.FRONTEND:
+			*frontend = true
 		default:
 			p.addError("unexpected token %q in attribute block at line %d", p.curToken.Literal, p.curToken.Line)
 			return
@@ -194,7 +313,40 @@ func (p *Parser) parseEventStatement() *ast.EventStatement {
 		stmt.Description = p.curToken.Literal
 	}
 
+	// Optional block: event Name "desc" { message_broker: BrokerName }
+	if p.peekTokenIs(token.LBRACE) {
+		p.nextToken() // consume {
+		p.parseEventBlock(stmt)
+	}
+
 	return stmt
+}
+
+func (p *Parser) parseEventBlock(stmt *ast.EventStatement) {
+	for !p.peekTokenIs(token.RBRACE) && !p.peekTokenIs(token.EOF) {
+		p.nextToken()
+		switch p.curToken.Type {
+		case token.PUBLISHED_AT:
+			if stmt.MessageBroker != "" {
+				p.addError("event block can only contain one published_at at line %d", p.curToken.Line)
+				return
+			}
+			if !p.expectPeek(token.COLON) {
+				return
+			}
+			if !p.expectPeek(token.IDENT) {
+				return
+			}
+			stmt.MessageBroker = p.curToken.Literal
+		default:
+			p.addError("expected published_at in event block, got %s at line %d",
+				p.curToken.Type, p.curToken.Line)
+			return
+		}
+	}
+	if !p.expectPeek(token.RBRACE) {
+		return
+	}
 }
 
 func (p *Parser) parseCollaborationStatement() *ast.CollaborationStatement {
@@ -471,8 +623,21 @@ func (p *Parser) parseCollaborationBlock(stmt *ast.CollaborationStatement) {
 				p.nextToken() // consume :
 			}
 			stmt.Publishes = p.parsePublishesList()
+		case token.DELIVERED_BY:
+			if stmt.DeliveredBy != "" {
+				p.addError("collaboration block can only contain one delivered_by at line %d, column %d",
+					p.curToken.Line, p.curToken.Column)
+				return
+			}
+			if !p.expectPeek(token.COLON) {
+				return
+			}
+			if !p.expectPeek(token.IDENT) {
+				return
+			}
+			stmt.DeliveredBy = p.curToken.Literal
 		default:
-			p.addError("expected feature, description, cardinality, flow, step, execute, or publishes, got %s at line %d, column %d",
+			p.addError("expected feature, description, cardinality, flow, step, execute, publishes, or delivered_by, got %s at line %d, column %d",
 				p.curToken.Type, p.curToken.Line, p.curToken.Column)
 			return
 		}

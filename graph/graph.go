@@ -33,7 +33,7 @@ func (g *Graph) AddDownstream(source, target Component) {
 	g.collaborations = append(g.collaborations, collab)
 }
 
-func (g *Graph) AddCollaboration(source, target Component, feature Feature, description string, cardinality string, cardinalityBy string, flow Flow, step string, stepOrder int, execute string) *Collaboration {
+func (g *Graph) AddCollaboration(source, target Component, feature Feature, description string, cardinality string, cardinalityBy string, flow Flow, step string, stepOrder int, execute string, deliveredBy *MessageBroker) *Collaboration {
 	if cardinality == "" {
 		cardinality = "1:1"
 	}
@@ -48,6 +48,7 @@ func (g *Graph) AddCollaboration(source, target Component, feature Feature, desc
 		Step:          step,
 		StepOrder:     stepOrder,
 		Execute:       execute,
+		DeliveredBy:   deliveredBy,
 	}
 	sn := source.Base().(*component)
 	sn.collaborations = append(sn.collaborations, collab)

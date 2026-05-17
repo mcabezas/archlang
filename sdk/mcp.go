@@ -194,6 +194,21 @@ func (s *MCPServer) registerTools() {
 		),
 		s.handleAnalyzeImpact,
 	)
+
+	s.server.AddTool(
+		mcp.NewTool("list_events",
+			mcp.WithDescription("List all events in the architecture. Events represent domain facts that flow through message brokers between services."),
+		),
+		s.handleListEvents,
+	)
+
+	s.server.AddTool(
+		mcp.NewTool("trace_event",
+			mcp.WithDescription("Trace an event across the architecture. Returns the event's broker, all services that publish it, and all services that subscribe to it."),
+			mcp.WithString("name", mcp.Required(), mcp.Description("Event name to trace")),
+		),
+		s.handleTraceEvent,
+	)
 }
 
 func (s *MCPServer) handleListComponents(_ context.Context, _ mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -205,8 +220,31 @@ func (s *MCPServer) handleListComponents(_ context.Context, _ mcp.CallToolReques
 	var sb strings.Builder
 	sb.WriteString("# Architecture Components\n\n")
 	for _, c := range components {
-		fmt.Fprintf(&sb, "- **%s** (%s) — org: %s, domain: %s, visibility: %s\n",
-			c.Name(), kindOf(c), c.Org(), c.Domain(), c.Visibility())
+		fmt.Fprintf(&sb, "- **%s** (%s) — org: %s, domain: %s, visibility: %s",
+			c.Name(), string(c.Kind()), c.Org(), c.Domain(), c.Visibility())
+		if svc, ok := c.(*graph.Service); ok && svc.Platform != "" {
+			fmt.Fprintf(&sb, ", platform: %s", svc.Platform)
+		}
+		if mb, ok := c.(*graph.MessageBroker); ok {
+			if mb.BrokerTechnology != "" {
+				fmt.Fprintf(&sb, ", technology: %s", mb.BrokerTechnology)
+			}
+			if mb.CloudProvider != "" {
+				fmt.Fprintf(&sb, ", cloud: %s", mb.CloudProvider)
+			}
+		}
+		if ev, ok := c.(*graph.Event); ok && ev.MessageBroker() != nil {
+			mb := ev.MessageBroker()
+			fmt.Fprintf(&sb, ", published_at: %s", mb.Name())
+			if mb.BrokerTechnology != "" {
+				fmt.Fprintf(&sb, " (technology: %s", mb.BrokerTechnology)
+				if mb.CloudProvider != "" {
+					fmt.Fprintf(&sb, ", cloud: %s", mb.CloudProvider)
+				}
+				sb.WriteString(")")
+			}
+		}
+		sb.WriteString("\n")
 	}
 	return mcp.NewToolResultText(sb.String()), nil
 }
@@ -224,10 +262,32 @@ func (s *MCPServer) handleGetComponent(_ context.Context, req mcp.CallToolReques
 
 	var sb strings.Builder
 	fmt.Fprintf(&sb, "# Component: %s\n\n", c.Name())
-	fmt.Fprintf(&sb, "- **Kind:** %s\n", kindOf(c))
+	fmt.Fprintf(&sb, "- **Kind:** %s\n", string(c.Kind()))
 	fmt.Fprintf(&sb, "- **Organization:** %s\n", c.Org())
 	fmt.Fprintf(&sb, "- **Domain:** %s\n", c.Domain())
-	fmt.Fprintf(&sb, "- **Visibility:** %s\n\n", c.Visibility())
+	fmt.Fprintf(&sb, "- **Visibility:** %s\n", c.Visibility())
+	if svc, ok := c.(*graph.Service); ok && svc.Platform != "" {
+		fmt.Fprintf(&sb, "- **Platform:** %s\n", svc.Platform)
+	}
+	if mb, ok := c.(*graph.MessageBroker); ok {
+		if mb.BrokerTechnology != "" {
+			fmt.Fprintf(&sb, "- **Technology:** %s\n", mb.BrokerTechnology)
+		}
+		if mb.CloudProvider != "" {
+			fmt.Fprintf(&sb, "- **Cloud:** %s\n", mb.CloudProvider)
+		}
+	}
+	if ev, ok := c.(*graph.Event); ok && ev.MessageBroker() != nil {
+		mb := ev.MessageBroker()
+		fmt.Fprintf(&sb, "- **Published At:** %s\n", mb.Name())
+		if mb.BrokerTechnology != "" {
+			fmt.Fprintf(&sb, "- **Broker Technology:** %s\n", mb.BrokerTechnology)
+		}
+		if mb.CloudProvider != "" {
+			fmt.Fprintf(&sb, "- **Broker Cloud:** %s\n", mb.CloudProvider)
+		}
+	}
+	sb.WriteString("\n")
 
 	downstream, upstream := splitCollaborations(c)
 
@@ -473,7 +533,7 @@ func (s *MCPServer) handleAnalyzeImpact(_ context.Context, req mcp.CallToolReque
 
 	var sb strings.Builder
 	fmt.Fprintf(&sb, "# Impact Analysis: %s\n\n", c.Name())
-	fmt.Fprintf(&sb, "- **Kind:** %s\n", kindOf(c))
+	fmt.Fprintf(&sb, "- **Kind:** %s\n", string(c.Kind()))
 	fmt.Fprintf(&sb, "- **Organization:** %s\n", c.Org())
 	fmt.Fprintf(&sb, "- **Visibility:** %s\n\n", c.Visibility())
 
@@ -582,6 +642,9 @@ func writeCollaboration(sb *strings.Builder, peerName string, col graph.Collabor
 	if col.Flow.Name != "" {
 		fmt.Fprintf(sb, " [flow: %s]", col.Flow.Name)
 	}
+	if col.DeliveredBy != nil {
+		fmt.Fprintf(sb, " [delivered_by: %s]", col.DeliveredBy.Name())
+	}
 	if col.Description != "" {
 		fmt.Fprintf(sb, " — %s", col.Description)
 	}
@@ -593,6 +656,103 @@ func writeCollaboration(sb *strings.Builder, peerName string, col graph.Collabor
 		sb.WriteString(")")
 	}
 	sb.WriteString("\n")
+}
+
+func (s *MCPServer) handleListEvents(_ context.Context, _ mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	events, err := s.storage.ListEvents()
+	if err != nil {
+		return mcp.NewToolResultError(err.Error()), nil
+	}
+
+	var sb strings.Builder
+	sb.WriteString("# Events\n\n")
+	for _, e := range events {
+		fmt.Fprintf(&sb, "- **%s**", e.Name())
+		if ev, ok := e.(*graph.Event); ok && ev.MessageBroker() != nil {
+			mb := ev.MessageBroker()
+			fmt.Fprintf(&sb, " — published_at: %s", mb.Name())
+			if mb.BrokerTechnology != "" {
+				fmt.Fprintf(&sb, " (technology: %s", mb.BrokerTechnology)
+				if mb.CloudProvider != "" {
+					fmt.Fprintf(&sb, ", cloud: %s", mb.CloudProvider)
+				}
+				sb.WriteString(")")
+			}
+		}
+		sb.WriteString("\n")
+	}
+	if len(events) == 0 {
+		sb.WriteString("_No events declared._\n")
+	}
+	return mcp.NewToolResultText(sb.String()), nil
+}
+
+func (s *MCPServer) handleTraceEvent(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	name := req.GetString("name", "")
+	if name == "" {
+		return mcp.NewToolResultError("name is required"), nil
+	}
+
+	components, err := s.storage.FindEvent(name)
+	if err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("event %q not found", name)), nil
+	}
+
+	var publishers, subscribers []graph.Component
+	var broker *graph.MessageBroker
+	for _, c := range components {
+		switch c.Kind() {
+		case graph.KindMessageBroker:
+			if mb, ok := c.(*graph.MessageBroker); ok {
+				broker = mb
+			}
+		case graph.KindEvent:
+			// skip — already known
+		default:
+			// determine role from collaborations
+			for _, col := range c.Collaborations() {
+				if col.Target.Kind() == graph.KindEvent && col.Target.Name() == name {
+					publishers = append(publishers, c)
+				} else if col.Source.Kind() == graph.KindEvent && col.Source.Name() == name {
+					subscribers = append(subscribers, c)
+				}
+			}
+		}
+	}
+
+	var sb strings.Builder
+	fmt.Fprintf(&sb, "# Event: %s\n\n", name)
+
+	if broker != nil {
+		fmt.Fprintf(&sb, "**Published at:** %s", broker.Name())
+		if broker.BrokerTechnology != "" {
+			fmt.Fprintf(&sb, " (technology: %s", broker.BrokerTechnology)
+			if broker.CloudProvider != "" {
+				fmt.Fprintf(&sb, ", cloud: %s", broker.CloudProvider)
+			}
+			sb.WriteString(")")
+		}
+		sb.WriteString("\n\n")
+	}
+
+	fmt.Fprintf(&sb, "## Publishers (%d)\n\n", len(publishers))
+	for _, p := range publishers {
+		fmt.Fprintf(&sb, "- **%s** (%s)\n", p.Name(), string(p.Kind()))
+	}
+	if len(publishers) == 0 {
+		sb.WriteString("_No publishers found._\n")
+	}
+
+	sb.WriteString("\n")
+	fmt.Fprintf(&sb, "## Subscribers (%d)\n\n", len(subscribers))
+	for _, sub := range subscribers {
+		fmt.Fprintf(&sb, "- **%s** (%s)\n", sub.Name(), string(sub.Kind()))
+	}
+	if len(subscribers) == 0 {
+		sb.WriteString("_No subscribers found._\n")
+	}
+
+	return mcp.NewToolResultText(sb.String()), nil
 }
 
 // mcpJSON is a helper to return JSON-encoded tool results.

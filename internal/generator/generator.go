@@ -69,15 +69,19 @@ func Generate(dir string, packageName string, opts ...GenerateOption) ([]byte, e
 
 // graphNode holds the information needed to generate code for a single node.
 type graphNode struct {
-	name        string
-	org         string
-	isService   bool
-	isInfra     bool
-	isEvent     bool
-	eventDesc   string
-	isPublic    bool
-	downstreams []string
-	upstreams   []string
+	name             string
+	org              string
+	isService        bool
+	isMessageBroker  bool
+	isEvent          bool
+	eventDesc        string
+	messageBrokerRef string // for events: name of the message_broker they use
+	brokerTechnology string // for message brokers
+	cloudProvider    string // for message brokers
+	platform         string // for services
+	isPublic         bool
+	downstreams      []string
+	upstreams        []string
 }
 
 type graphEdge struct {
@@ -92,6 +96,7 @@ type graphEdge struct {
 	step            string
 	stepOrder       int
 	execute         string
+	deliveredBy     string // resolved message_broker name (explicit or inherited from event)
 	publishEdges    []int
 }
 
@@ -100,21 +105,85 @@ type featureDecl struct {
 	description string
 }
 
+type brokerTechnologyDecl struct {
+	name        string
+	description string
+}
+
+type cloudProviderDecl struct {
+	name        string
+	description string
+}
+
+type platformDecl struct {
+	name        string
+	description string
+}
+
 // builtGraph is the intermediate representation after building from ASTs.
 type builtGraph struct {
-	nodes    map[string]*graphNode
-	order    []string // sorted names
-	edges    []graphEdge
-	features map[string]*featureDecl
-	warnings []string
+	nodes              map[string]*graphNode
+	order              []string // sorted names
+	edges              []graphEdge
+	features           map[string]*featureDecl
+	brokerTechnologies map[string]*brokerTechnologyDecl
+	cloudProviders     map[string]*cloudProviderDecl
+	platforms          map[string]*platformDecl
+	warnings           []string
+}
+
+// builtInBrokerTechnologies lists the broker technologies pre-registered by the compiler.
+var builtInBrokerTechnologies = []brokerTechnologyDecl{
+	{name: "RabbitMQ", description: "RabbitMQ message broker"},
+	{name: "Kafka", description: "Apache Kafka distributed event streaming platform"},
+	{name: "EventBridge", description: "AWS EventBridge serverless event bus"},
+}
+
+// builtInCloudProviders lists the cloud providers pre-registered by the compiler.
+var builtInCloudProviders = []cloudProviderDecl{
+	{name: "AWS", description: "Amazon Web Services"},
+	{name: "GCP", description: "Google Cloud Platform"},
+	{name: "Azure", description: "Microsoft Azure"},
+}
+
+// builtInPlatforms lists the compute platforms pre-registered by the compiler.
+var builtInPlatforms = []platformDecl{
+	{name: "Lambda", description: "AWS Lambda serverless compute"},
+	{name: "EKS", description: "Amazon Elastic Kubernetes Service"},
+	{name: "ECS", description: "Amazon Elastic Container Service"},
+	{name: "Fargate", description: "AWS Fargate serverless containers"},
+	{name: "EC2", description: "Amazon Elastic Compute Cloud"},
+	{name: "CloudRun", description: "Google Cloud Run serverless containers"},
+	{name: "AppEngine", description: "Google App Engine"},
+	{name: "AzureFunctions", description: "Azure Functions serverless compute"},
+	{name: "AzureContainerApps", description: "Azure Container Apps"},
 }
 
 func buildGraph(allFolders map[string]*ast.Architecture) (*builtGraph, []string) {
 	nodes := make(map[string]*graphNode)
 	features := make(map[string]*featureDecl)
-	var errors []string
+	brokerTechnologies := make(map[string]*brokerTechnologyDecl)
+	cloudProviders := make(map[string]*cloudProviderDecl)
+	platforms := make(map[string]*platformDecl)
 
-	errors = append(errors, registerDeclarations(allFolders, nodes, features)...)
+	for _, bt := range builtInBrokerTechnologies {
+		bt := bt
+		brokerTechnologies[bt.name] = &bt
+	}
+	for _, cp := range builtInCloudProviders {
+		cp := cp
+		cloudProviders[cp.name] = &cp
+	}
+	for _, p := range builtInPlatforms {
+		p := p
+		platforms[p.name] = &p
+	}
+
+	var errors []string
+	errors = append(errors, registerDeclarations(allFolders, nodes, features, brokerTechnologies, cloudProviders, platforms)...)
+	injectDefaultBus(nodes)
+	errors = append(errors, validateMessageBrokerRefs(nodes, brokerTechnologies, cloudProviders)...)
+	errors = append(errors, validatePlatformRefs(nodes, platforms)...)
 	edges, wireErrs := wireCollaborations(allFolders, nodes, features)
 	errors = append(errors, wireErrs...)
 	errors = append(errors, validateCrossOrgVisibility(nodes)...)
@@ -134,10 +203,19 @@ func buildGraph(allFolders map[string]*ast.Architecture) (*builtGraph, []string)
 		}
 	}
 
-	return &builtGraph{nodes: nodes, order: order, edges: edges, features: features, warnings: warnings}, errors
+	return &builtGraph{
+		nodes:              nodes,
+		order:              order,
+		edges:              edges,
+		features:           features,
+		brokerTechnologies: brokerTechnologies,
+		cloudProviders:     cloudProviders,
+		platforms:          platforms,
+		warnings:           warnings,
+	}, errors
 }
 
-func registerDeclarations(allFolders map[string]*ast.Architecture, nodes map[string]*graphNode, features map[string]*featureDecl) []string {
+func registerDeclarations(allFolders map[string]*ast.Architecture, nodes map[string]*graphNode, features map[string]*featureDecl, brokerTechnologies map[string]*brokerTechnologyDecl, cloudProviders map[string]*cloudProviderDecl, platforms map[string]*platformDecl) []string {
 	var errors []string
 	for folder, arch := range allFolders {
 		org := inferOrg(folder)
@@ -148,15 +226,11 @@ func registerDeclarations(allFolders map[string]*ast.Architecture, nodes map[str
 					errors = append(errors, fmt.Sprintf("%s: line %d: duplicate declaration %q", folder, s.Token.Line, s.Name))
 					continue
 				}
-				n := &graphNode{
+				nodes[s.Name] = &graphNode{
 					name:     s.Name,
 					org:      org,
 					isPublic: s.Public,
 				}
-				if s.Infra != "" {
-					n.isInfra = true
-				}
-				nodes[s.Name] = n
 			case *ast.ServiceStatement:
 				if _, exists := nodes[s.Name]; exists {
 					errors = append(errors, fmt.Sprintf("%s: line %d: duplicate declaration %q", folder, s.Token.Line, s.Name))
@@ -166,18 +240,33 @@ func registerDeclarations(allFolders map[string]*ast.Architecture, nodes map[str
 					name:      s.Name,
 					org:       org,
 					isService: true,
+					platform:  s.Platform,
 					isPublic:  s.Public,
 				}
-			case *ast.InfraStatement:
+			case *ast.BrokerTechnologyStatement:
+				if _, exists := brokerTechnologies[s.Name]; exists {
+					errors = append(errors, fmt.Sprintf("%s: line %d: duplicate broker_technology declaration %q", folder, s.Token.Line, s.Name))
+					continue
+				}
+				brokerTechnologies[s.Name] = &brokerTechnologyDecl{name: s.Name, description: s.Description}
+			case *ast.CloudProviderStatement:
+				if _, exists := cloudProviders[s.Name]; exists {
+					errors = append(errors, fmt.Sprintf("%s: line %d: duplicate cloud_provider declaration %q", folder, s.Token.Line, s.Name))
+					continue
+				}
+				cloudProviders[s.Name] = &cloudProviderDecl{name: s.Name, description: s.Description}
+			case *ast.MessageBrokerStatement:
 				if _, exists := nodes[s.Name]; exists {
 					errors = append(errors, fmt.Sprintf("%s: line %d: duplicate declaration %q", folder, s.Token.Line, s.Name))
 					continue
 				}
 				nodes[s.Name] = &graphNode{
-					name:     s.Name,
-					org:      org,
-					isInfra:  true,
-					isPublic: s.Public,
+					name:             s.Name,
+					org:              org,
+					isMessageBroker:  true,
+					brokerTechnology: s.BrokerTechnology,
+					cloudProvider:    s.CloudProvider,
+					isPublic:         s.Public,
 				}
 			case *ast.EventStatement:
 				if _, exists := nodes[s.Name]; exists {
@@ -185,17 +274,129 @@ func registerDeclarations(allFolders map[string]*ast.Architecture, nodes map[str
 					continue
 				}
 				nodes[s.Name] = &graphNode{
-					name:      s.Name,
-					org:       org,
-					isEvent:   true,
-					eventDesc: s.Description,
+					name:             s.Name,
+					org:              org,
+					isEvent:          true,
+					eventDesc:        s.Description,
+					messageBrokerRef: s.MessageBroker,
 				}
+			case *ast.PlatformStatement:
+				if _, exists := platforms[s.Name]; exists {
+					errors = append(errors, fmt.Sprintf("%s: line %d: duplicate platform declaration %q", folder, s.Token.Line, s.Name))
+					continue
+				}
+				platforms[s.Name] = &platformDecl{name: s.Name, description: s.Description}
 			case *ast.FeatureStatement:
 				if _, exists := features[s.Name]; exists {
 					errors = append(errors, fmt.Sprintf("%s: line %d: duplicate feature declaration %q", folder, s.Token.Line, s.Name))
 					continue
 				}
 				features[s.Name] = &featureDecl{name: s.Name, description: s.Description}
+			}
+		}
+	}
+	return errors
+}
+
+const defaultBusName = "Bus"
+
+// injectDefaultBus assigns the built-in "Bus" broker to every event that has
+// no explicit published_at. If the user declared a message_broker named "Bus"
+// themselves, that declaration is used as-is and nothing is injected.
+func injectDefaultBus(nodes map[string]*graphNode) {
+	needsDefault := false
+	for _, n := range nodes {
+		if n.isEvent && n.messageBrokerRef == "" {
+			needsDefault = true
+			break
+		}
+	}
+	if !needsDefault {
+		return
+	}
+
+	// Ensure the Bus node exists — user may have declared it already.
+	if _, exists := nodes[defaultBusName]; !exists {
+		nodes[defaultBusName] = &graphNode{
+			name:            defaultBusName,
+			isMessageBroker: true,
+		}
+	}
+
+	for _, n := range nodes {
+		if n.isEvent && n.messageBrokerRef == "" {
+			n.messageBrokerRef = defaultBusName
+		}
+	}
+}
+
+func validateMessageBrokerRefs(nodes map[string]*graphNode, brokerTechnologies map[string]*brokerTechnologyDecl, cloudProviders map[string]*cloudProviderDecl) []string {
+	var errors []string
+	for _, n := range nodes {
+		if n.isMessageBroker {
+			if n.brokerTechnology != "" {
+				if _, ok := brokerTechnologies[n.brokerTechnology]; !ok {
+					canonical := ""
+					for k, v := range brokerTechnologies {
+						if strings.EqualFold(k, n.brokerTechnology) {
+							canonical = v.name
+							break
+						}
+					}
+					if canonical != "" {
+						n.brokerTechnology = canonical
+					} else {
+						errors = append(errors, fmt.Sprintf("message_broker %q references undeclared broker_technology %q", n.name, n.brokerTechnology))
+					}
+				}
+			}
+			if n.cloudProvider != "" {
+				if _, ok := cloudProviders[n.cloudProvider]; !ok {
+					canonical := ""
+					for k, v := range cloudProviders {
+						if strings.EqualFold(k, n.cloudProvider) {
+							canonical = v.name
+							break
+						}
+					}
+					if canonical != "" {
+						n.cloudProvider = canonical
+					} else {
+						errors = append(errors, fmt.Sprintf("message_broker %q references undeclared cloud_provider %q", n.name, n.cloudProvider))
+					}
+				}
+			}
+		}
+		if n.isEvent && n.messageBrokerRef != "" {
+			ref, ok := nodes[n.messageBrokerRef]
+			if !ok {
+				errors = append(errors, fmt.Sprintf("event %q references undeclared message_broker %q", n.name, n.messageBrokerRef))
+			} else if !ref.isMessageBroker {
+				errors = append(errors, fmt.Sprintf("event %q: %q is not a message_broker", n.name, n.messageBrokerRef))
+			}
+		}
+	}
+	return errors
+}
+
+func validatePlatformRefs(nodes map[string]*graphNode, platforms map[string]*platformDecl) []string {
+	var errors []string
+	for _, n := range nodes {
+		if n.isService && n.platform != "" {
+			if _, ok := platforms[n.platform]; !ok {
+				// Case-insensitive fallback
+				canonical := ""
+				for k, p := range platforms {
+					if strings.EqualFold(k, n.platform) {
+						canonical = p.name
+						break
+					}
+				}
+				if canonical != "" {
+					n.platform = canonical
+				} else {
+					errors = append(errors, fmt.Sprintf("service %q references undeclared platform %q", n.name, n.platform))
+				}
 			}
 		}
 	}
@@ -221,6 +422,24 @@ func wireCollaborations(allFolders map[string]*ast.Architecture, nodes map[strin
 			targetQN, err := resolveRef(s.Target, s.Token.Line, nodes)
 			if err != "" {
 				errors = append(errors, fmt.Sprintf("%s: %s", folder, err))
+			}
+
+			// Resolve delivered_by: explicit overrides, otherwise inherit from event's published_at
+			deliveredBy := s.DeliveredBy
+			if deliveredBy != "" {
+				ref, ok := nodes[deliveredBy]
+				if !ok {
+					errors = append(errors, fmt.Sprintf("%s: line %d: delivered_by references undeclared message_broker %q", folder, s.Token.Line, deliveredBy))
+					deliveredBy = ""
+				} else if !ref.isMessageBroker {
+					errors = append(errors, fmt.Sprintf("%s: line %d: delivered_by %q is not a message_broker", folder, s.Token.Line, deliveredBy))
+					deliveredBy = ""
+				}
+			} else if sourceQN != "" {
+				// inherit from the source event's published_at
+				if src := nodes[sourceQN]; src != nil && src.isEvent && src.messageBrokerRef != "" {
+					deliveredBy = src.messageBrokerRef
+				}
 			}
 
 			if sourceQN == "" || targetQN == "" {
@@ -263,6 +482,7 @@ func wireCollaborations(allFolders map[string]*ast.Architecture, nodes map[strin
 				step:            s.Step,
 				stepOrder:       s.StepOrder,
 				execute:         s.Execute,
+				deliveredBy:     deliveredBy,
 			})
 
 			// Expand publishes into edges and wire them to the subscribe edge
@@ -391,15 +611,20 @@ func generateCode(g *builtGraph, packageName string) ([]byte, error) {
 		}
 
 		if n.isEvent {
-			fmt.Fprintf(&buf, "\t%s = graph.NewEvent(%q, %s)\n", varName, n.eventDesc, opts)
-		} else {
-			constructor := "graph.NewComponent"
-			if n.isService {
-				constructor = "graph.NewService"
-			} else if n.isInfra {
-				constructor = "graph.NewInfra"
+			eventOpts := opts
+			if n.messageBrokerRef != "" {
+				eventOpts += fmt.Sprintf(", graph.WithMessageBrokerComponent(%s)", toGoName(n.messageBrokerRef))
 			}
-			fmt.Fprintf(&buf, "\t%s = %s(%s)\n", varName, constructor, opts)
+			fmt.Fprintf(&buf, "\t%s = graph.NewEvent(%q, %s)\n", varName, n.eventDesc, eventOpts)
+		} else if n.isMessageBroker {
+			fmt.Fprintf(&buf, "\t%s = graph.NewMessageBroker(%q, %q, %s)\n", varName, n.brokerTechnology, n.cloudProvider, opts)
+		} else if n.isService {
+			if n.platform != "" {
+				opts += fmt.Sprintf(", graph.WithPlatform(%q)", n.platform)
+			}
+			fmt.Fprintf(&buf, "\t%s = graph.NewService(%s)\n", varName, opts)
+		} else {
+			fmt.Fprintf(&buf, "\t%s = graph.NewComponent(%s)\n", varName, opts)
 		}
 	}
 	buf.WriteString(")\n\n")
@@ -472,13 +697,17 @@ func generateCode(g *builtGraph, packageName string) ([]byte, error) {
 				stepLit := fmt.Sprintf("%q", edge.step)
 				stepOrderLit := fmt.Sprintf("%d", edge.stepOrder)
 				executeLit := fmt.Sprintf("%q", edge.execute)
+				deliveredByLit := "nil"
+				if edge.deliveredBy != "" {
+					deliveredByLit = toGoName(edge.deliveredBy)
+				}
 
 				if len(edge.publishEdges) > 0 {
 					varName := fmt.Sprintf("e%d", edgeCounter)
 					edgeCounter++
 					edgeVars[ei] = varName
-					fmt.Fprintf(&buf, "\t%s := g%d.AddCollaboration(%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)\n",
-						varName, i, toGoName(edge.sourceQN), toGoName(edge.targetQN), featureLit, descLit, cardLit, cardByLit, flowLit, stepLit, stepOrderLit, executeLit)
+					fmt.Fprintf(&buf, "\t%s := g%d.AddCollaboration(%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)\n",
+						varName, i, toGoName(edge.sourceQN), toGoName(edge.targetQN), featureLit, descLit, cardLit, cardByLit, flowLit, stepLit, stepOrderLit, executeLit, deliveredByLit)
 				} else {
 					// Check if this edge is a publish target that needs a variable
 					needsVar := false
@@ -493,11 +722,11 @@ func generateCode(g *builtGraph, packageName string) ([]byte, error) {
 						varName := fmt.Sprintf("e%d", edgeCounter)
 						edgeCounter++
 						edgeVars[ei] = varName
-						fmt.Fprintf(&buf, "\t%s := g%d.AddCollaboration(%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)\n",
-							varName, i, toGoName(edge.sourceQN), toGoName(edge.targetQN), featureLit, descLit, cardLit, cardByLit, flowLit, stepLit, stepOrderLit, executeLit)
+						fmt.Fprintf(&buf, "\t%s := g%d.AddCollaboration(%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)\n",
+							varName, i, toGoName(edge.sourceQN), toGoName(edge.targetQN), featureLit, descLit, cardLit, cardByLit, flowLit, stepLit, stepOrderLit, executeLit, deliveredByLit)
 					} else {
-						fmt.Fprintf(&buf, "\tg%d.AddCollaboration(%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)\n",
-							i, toGoName(edge.sourceQN), toGoName(edge.targetQN), featureLit, descLit, cardLit, cardByLit, flowLit, stepLit, stepOrderLit, executeLit)
+						fmt.Fprintf(&buf, "\tg%d.AddCollaboration(%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)\n",
+							i, toGoName(edge.sourceQN), toGoName(edge.targetQN), featureLit, descLit, cardLit, cardByLit, flowLit, stepLit, stepOrderLit, executeLit, deliveredByLit)
 					}
 				}
 			}

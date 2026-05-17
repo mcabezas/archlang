@@ -14,23 +14,46 @@ func (d *mermaidDrawer) draw(components []graph.Component) string {
 	type edgeKey struct{ from, to string }
 	seen := make(map[edgeKey]bool)
 	type edgeInfo struct {
-		from, to, arrow string
+		from, to, arrow, label string
 	}
 	var edges []edgeInfo
 	connected := make(map[string]bool)
 
 	for _, c := range components {
 		for _, collab := range c.Collaborations() {
-			key := edgeKey{c.Name(), collab.Target.Name()}
-			if !seen[key] {
-				seen[key] = true
-				arrow := "-->"
-				if isEvent(collab.Source) || isEvent(collab.Target) {
-					arrow = "-.->"
+			if collab.Target.Kind() == graph.KindEvent {
+				// Publish: service -.->|"📨 publishes EventName"| broker
+				if ev, ok := collab.Target.(*graph.Event); ok && ev.MessageBroker() != nil {
+					mb := ev.MessageBroker()
+					key := edgeKey{c.Name(), mb.Name()}
+					if !seen[key] {
+						seen[key] = true
+						label := "publishes<br>[<span style=\"color:#fde047;font-weight:bold\">" + collab.Target.Name() + "</span>]"
+						edges = append(edges, edgeInfo{c.Name(), mb.Name(), "-.->", label})
+						connected[c.Name()] = true
+						connected[mb.Name()] = true
+					}
 				}
-				edges = append(edges, edgeInfo{c.Name(), collab.Target.Name(), arrow})
-				connected[c.Name()] = true
-				connected[collab.Target.Name()] = true
+			} else if collab.Source.Kind() == graph.KindEvent {
+				// Subscribe: broker -.->|"listen"| service
+				if collab.DeliveredBy != nil {
+					key := edgeKey{collab.DeliveredBy.Name(), collab.Target.Name()}
+					if !seen[key] {
+						seen[key] = true
+						edges = append(edges, edgeInfo{collab.DeliveredBy.Name(), collab.Target.Name(), "-.->", "listen<br>[<span style=\"color:#fde047;font-weight:bold\">" + collab.Source.Name() + "</span>]"})
+						connected[collab.DeliveredBy.Name()] = true
+						connected[collab.Target.Name()] = true
+					}
+				}
+			} else {
+				// service --> service
+				key := edgeKey{c.Name(), collab.Target.Name()}
+				if !seen[key] {
+					seen[key] = true
+					edges = append(edges, edgeInfo{c.Name(), collab.Target.Name(), "-->", ""})
+					connected[c.Name()] = true
+					connected[collab.Target.Name()] = true
+				}
 			}
 		}
 	}
@@ -44,14 +67,18 @@ func (d *mermaidDrawer) draw(components []graph.Component) string {
 	}
 
 	var sb strings.Builder
-	sb.WriteString("graph LR\n")
+	sb.WriteString("graph TB\n")
 
 	orgOrder, orgs := groupByOrg(active)
 	writeSubgraphs(&sb, orgOrder, orgs)
 	writeEventClassDef(&sb, active)
 
 	for _, e := range edges {
-		fmt.Fprintf(&sb, "  %s %s %s\n", nodeID(e.from), e.arrow, nodeID(e.to))
+		if e.label != "" {
+			fmt.Fprintf(&sb, "  %s %s|\"%s\"| %s\n", nodeID(e.from), e.arrow, e.label, nodeID(e.to))
+		} else {
+			fmt.Fprintf(&sb, "  %s %s %s\n", nodeID(e.from), e.arrow, nodeID(e.to))
+		}
 	}
 
 	return wrapHTML("Architecture Overview", "", sb.String())
@@ -123,27 +150,45 @@ func (d *mermaidDrawer) drawFeature(components []graph.Component, feature string
 			orgOrder, orgs := groupByOrg(componentsInDiagram)
 
 			var diagram strings.Builder
-			diagram.WriteString("graph LR\n")
+			diagram.WriteString("graph TB\n")
 			writeSubgraphs(&diagram, orgOrder, orgs)
 			writeEventClassDef(&diagram, componentsInDiagram)
 
 			type edgeKey struct{ from, to string }
 			seen := make(map[edgeKey]bool)
 			for _, collab := range collabsForDiagram {
-				key := edgeKey{collab.Source.Name(), collab.Target.Name()}
-				if seen[key] {
-					continue
-				}
-				seen[key] = true
-				label := edgeLabel(collab)
-				arrow := "-->"
-				if isEvent(collab.Source) || isEvent(collab.Target) {
-					arrow = "-.->"
-				}
-				if label != "" {
-					fmt.Fprintf(&diagram, "  %s %s|\"%s\"| %s\n", nodeID(collab.Source.Name()), arrow, label, nodeID(collab.Target.Name()))
+				if collab.Target.Kind() == graph.KindEvent {
+					// Publish: service -.->|"📨 publishes EventName"| broker
+					if ev, ok := collab.Target.(*graph.Event); ok && ev.MessageBroker() != nil {
+						mb := ev.MessageBroker()
+						key := edgeKey{collab.Source.Name(), mb.Name()}
+						if !seen[key] {
+							seen[key] = true
+							label := "publishes<br>[<span style=\"color:#fde047;font-weight:bold\">" + collab.Target.Name() + "</span>]"
+							fmt.Fprintf(&diagram, "  %s -.->|\"%s\"| %s\n", nodeID(collab.Source.Name()), label, nodeID(mb.Name()))
+						}
+					}
+				} else if collab.Source.Kind() == graph.KindEvent {
+					// Subscribe: broker -.->|"listen"| service
+					if collab.DeliveredBy != nil {
+						key := edgeKey{collab.DeliveredBy.Name(), collab.Target.Name()}
+						if !seen[key] {
+							seen[key] = true
+							fmt.Fprintf(&diagram, "  %s -.->|\"listen<br>[%s]\"| %s\n", nodeID(collab.DeliveredBy.Name()), collab.Source.Name(), nodeID(collab.Target.Name()))
+						}
+					}
 				} else {
-					fmt.Fprintf(&diagram, "  %s %s %s\n", nodeID(collab.Source.Name()), arrow, nodeID(collab.Target.Name()))
+					// service --> service
+					key := edgeKey{collab.Source.Name(), collab.Target.Name()}
+					if !seen[key] {
+						seen[key] = true
+						label := edgeLabel(collab)
+						if label != "" {
+							fmt.Fprintf(&diagram, "  %s -->|\"%s\"| %s\n", nodeID(collab.Source.Name()), label, nodeID(collab.Target.Name()))
+						} else {
+							fmt.Fprintf(&diagram, "  %s --> %s\n", nodeID(collab.Source.Name()), nodeID(collab.Target.Name()))
+						}
+					}
 				}
 			}
 
@@ -154,17 +199,86 @@ func (d *mermaidDrawer) drawFeature(components []graph.Component, feature string
 	return wrapFeatureHTML(body.String())
 }
 
+func (d *mermaidDrawer) drawEvent(components []graph.Component, eventName string) string {
+	type edgeKey struct{ from, to string }
+	seen := make(map[edgeKey]bool)
+	type edgeInfo struct{ from, to, arrow, label string }
+	var edges []edgeInfo
+	connected := make(map[string]bool)
+
+	for _, c := range components {
+		for _, collab := range c.Collaborations() {
+			if collab.Target.Kind() == graph.KindEvent && collab.Target.Name() == eventName {
+				if ev, ok := collab.Target.(*graph.Event); ok && ev.MessageBroker() != nil {
+					mb := ev.MessageBroker()
+					key := edgeKey{c.Name(), mb.Name()}
+					if !seen[key] {
+						seen[key] = true
+						label := "publishes<br>[<span style=\"color:#fde047;font-weight:bold\">" + collab.Target.Name() + "</span>]"
+						edges = append(edges, edgeInfo{c.Name(), mb.Name(), "-.->", label})
+						connected[c.Name()] = true
+						connected[mb.Name()] = true
+					}
+				}
+			}
+			if collab.Source.Kind() == graph.KindEvent && collab.Source.Name() == eventName && collab.DeliveredBy != nil {
+				key := edgeKey{collab.DeliveredBy.Name(), collab.Target.Name()}
+				if !seen[key] {
+					seen[key] = true
+					label := "listen<br>[<span style=\"color:#fde047;font-weight:bold\">" + collab.Source.Name() + "</span>]"
+					edges = append(edges, edgeInfo{collab.DeliveredBy.Name(), collab.Target.Name(), "-.->", label})
+					connected[collab.DeliveredBy.Name()] = true
+					connected[collab.Target.Name()] = true
+				}
+			}
+		}
+	}
+
+	var active []graph.Component
+	for _, c := range components {
+		if connected[c.Name()] {
+			active = append(active, c)
+		}
+	}
+
+	var sb strings.Builder
+	sb.WriteString("graph TB\n")
+	orgOrder, orgs := groupByOrg(active)
+	writeSubgraphs(&sb, orgOrder, orgs)
+	writeEventClassDef(&sb, active)
+
+	for _, e := range edges {
+		fmt.Fprintf(&sb, "  %s %s|\"%s\"| %s\n", nodeID(e.from), e.arrow, e.label, nodeID(e.to))
+	}
+
+	return wrapHTML("Event: "+eventName, "", sb.String())
+}
+
 func collectComponents(collabs []graph.Collaboration) []graph.Component {
 	seen := make(map[string]bool)
 	var components []graph.Component
-	for _, c := range collabs {
-		if !seen[c.Source.Name()] {
-			seen[c.Source.Name()] = true
-			components = append(components, c.Source)
+	add := func(c graph.Component) {
+		if !seen[c.Name()] {
+			seen[c.Name()] = true
+			components = append(components, c)
 		}
-		if !seen[c.Target.Name()] {
-			seen[c.Target.Name()] = true
-			components = append(components, c.Target)
+	}
+	for _, c := range collabs {
+		if c.Target.Kind() == graph.KindEvent {
+			// Publish: include source service and broker, skip event node
+			add(c.Source)
+			if ev, ok := c.Target.(*graph.Event); ok && ev.MessageBroker() != nil {
+				add(ev.MessageBroker())
+			}
+		} else if c.Source.Kind() == graph.KindEvent {
+			// Subscribe: include broker and target service, skip event node
+			if c.DeliveredBy != nil {
+				add(c.DeliveredBy)
+			}
+			add(c.Target)
+		} else {
+			add(c.Source)
+			add(c.Target)
 		}
 	}
 	return components
@@ -187,9 +301,12 @@ func writeSubgraphs(sb *strings.Builder, orgOrder []graph.Org, orgs map[graph.Or
 	for _, org := range orgOrder {
 		fmt.Fprintf(sb, "  subgraph org_%s [\"%s\"]\n", nodeID(string(org)), string(org))
 		for _, c := range orgs[org] {
-			if isEvent(c) {
-				fmt.Fprintf(sb, "    %s([\"%s\"])\n", nodeID(c.Name()), c.Name())
-			} else {
+			switch {
+			case c.Kind() == graph.KindEvent:
+				fmt.Fprintf(sb, "    %s([\"Event: %s\"])\n", nodeID(c.Name()), c.Name())
+			case c.Kind() == graph.KindMessageBroker:
+				fmt.Fprintf(sb, "    %s[(\"✉️✉️✉️✉️✉️✉️<br>✉️ %s ✉️<br>✉️✉️✉️✉️✉️✉️\")]\n", nodeID(c.Name()), c.Name())
+			default:
 				fmt.Fprintf(sb, "    %s[\"%s\"]\n", nodeID(c.Name()), c.Name())
 			}
 		}
@@ -197,21 +314,35 @@ func writeSubgraphs(sb *strings.Builder, orgOrder []graph.Org, orgs map[graph.Or
 	}
 }
 
-func isEvent(c graph.Component) bool {
-	_, ok := c.(*graph.Event)
-	return ok
-}
 
 func writeEventClassDef(sb *strings.Builder, components []graph.Component) {
 	var eventNodes []string
+	var brokerNodes []string
+	var serviceNodes []string
 	for _, c := range components {
-		if isEvent(c) {
+		switch c.Kind() {
+		case graph.KindEvent:
 			eventNodes = append(eventNodes, nodeID(c.Name()))
+		case graph.KindMessageBroker:
+			brokerNodes = append(brokerNodes, nodeID(c.Name()))
+		default:
+			serviceNodes = append(serviceNodes, nodeID(c.Name()))
 		}
 	}
+	if len(serviceNodes) > 0 {
+		sb.WriteString("  classDef service fill:#1e293b,stroke:#38bdf8,color:#fde047,font-weight:bold\n")
+		fmt.Fprintf(sb, "  class %s service\n", strings.Join(serviceNodes, ","))
+	}
 	if len(eventNodes) > 0 {
-		sb.WriteString("  classDef event fill:#0d9488,stroke:#2dd4bf,color:#f0fdfa\n")
+		sb.WriteString("  classDef event fill:#0d9488,stroke:#2dd4bf,color:#fde047,font-weight:bold\n")
 		fmt.Fprintf(sb, "  class %s event\n", strings.Join(eventNodes, ","))
+	}
+	if len(brokerNodes) > 0 {
+		sb.WriteString("  classDef messageBroker fill:#7c3aed,stroke:#a78bfa,color:#f5f3ff,font-weight:bold\n")
+		fmt.Fprintf(sb, "  class %s messageBroker\n", strings.Join(brokerNodes, ","))
+		for _, n := range brokerNodes {
+			fmt.Fprintf(sb, "  style %s min-width:300px\n", n)
+		}
 	}
 }
 
@@ -237,6 +368,17 @@ func nodeID(name string) string {
 	return strings.ReplaceAll(name, "-", "_")
 }
 
+func toUpperSnake(s string) string {
+	var result []rune
+	for i, r := range s {
+		if i > 0 && r >= 'A' && r <= 'Z' {
+			result = append(result, '_')
+		}
+		result = append(result, []rune(strings.ToUpper(string(r)))...)
+	}
+	return string(result)
+}
+
 const mermaidInit = `<script src="https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js"></script>
   <script>mermaid.initialize({
     startOnLoad: true,
@@ -249,7 +391,7 @@ const mermaidInit = `<script src="https://cdn.jsdelivr.net/npm/mermaid/dist/merm
       lineColor: '#64748b',
       secondaryColor: '#334155',
       tertiaryColor: '#0f172a',
-      textColor: '#e2e8f0',
+      textColor: '#fde047',
       mainBkg: '#1e293b',
       nodeBorder: '#38bdf8',
       clusterBkg: '#0f172a',
