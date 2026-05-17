@@ -21,7 +21,7 @@ When this skill is invoked, you MUST use the archlang MCP tools to answer. NEVER
    - For a specific flow: call `mcp__archlang__trace_flow` with the flow name
    - For component details or dependencies: call `mcp__archlang__get_component` with the component name
    - For impact analysis: call `mcp__archlang__analyze_impact` with the component name
-   - For an event — who publishes it, who subscribes, which broker: call `mcp__archlang__trace_event` with the event name
+   - For an event — who publishes it, who subscribes, which broker, what it causes: call `mcp__archlang__trace_event` with the event name
    - If unsure what exists: call `mcp__archlang__list_features`, `mcp__archlang__list_components`, or `mcp__archlang__list_events` first
 
 3. **If the MCP server is not running**, tell the user to start it with `make mcp-up` and retry.
@@ -51,7 +51,7 @@ Every component returned by the MCP tools has a `kind` field. Use it to understa
 - Has a `published_at` field identifying which message broker it is published to by default
 - When a service subscribes to an event, the collaboration may have a `delivered_by` field overriding the default broker for that specific subscription
 - If `delivered_by` is absent on a subscribe collaboration, the event's `published_at` broker is the effective delivery channel
-- Events use dotted arrows (`-.->`) in diagrams to distinguish them from direct service calls
+- Events are **not drawn as nodes** — they appear as labels on arrows between services and brokers
 
 #### `message_broker` — infrastructure, not logic
 - Infrastructure component. No business logic lives here
@@ -69,13 +69,25 @@ Events are first-class citizens. Use these tools to understand event flows:
 - `mcp__archlang__list_events` — lists all events with their broker and cloud info
 - `mcp__archlang__trace_event` — given an event name, returns:
   - The broker it is published to (`published_at`)
-  - All **publishers**: services that have a collaboration where `target` is this event
-  - All **subscribers**: services that have a collaboration where `source` is this event
+  - All **publishers**: services that publish this event
+  - All **subscribers**: services that listen to this event, each annotated with `→ causes: EventX` if handling this event triggers the subscriber to publish another event
 
-When presenting event traces:
-- Show the publisher → broker arrow labeled "publishes"
-- Show the broker → subscriber arrow labeled "listen"
-- Mention the `delivered_by` broker on subscribe collaborations when present
+### Event Causation Chain
+
+When a subscriber handles an event and publishes another event as a result, that second event is **caused by** the first. `trace_event` surfaces this per subscriber as `→ causes: EventX`.
+
+This means events form a causal chain. When presenting an event trace, always show this chain explicitly:
+
+```
+OrderPlaced
+  └─ beans listens → causes: OrderBeansValidated
+  └─ barista listens → causes: CoffeeBrewStarted
+```
+
+**Causal ordering rule:** publishers always fire before subscribers. Subscribers fire before caused events. When building a sequence diagram for an event, always follow this order:
+1. Publisher(s) → broker: `publishes [EventName]`
+2. Broker → subscriber(s): `listen [EventName]`
+3. Subscriber → broker: `publishes [CausedEvent]` (immediately after the subscriber that causes it)
 
 ### Reading Collaborations
 
@@ -83,6 +95,7 @@ Each collaboration has:
 - `source → target`: direction of the call or event flow
 - `delivered_by`: for subscribe collaborations — the message broker that delivers the event (resolved at compile time, either explicit or inherited from the event's `published_at`)
 - `execute`: the handler method invoked when the event arrives
+- `publishes`: events that this subscriber fires as a direct result of handling the incoming event (the causal chain)
 - `feature`, `flow`, `step`: tracing metadata grouping collaborations into business capabilities and sequences
 
 ### When the User Asks About Implementation
@@ -94,23 +107,31 @@ If the user asks **how something works in code**, **where logic lives**, or **wa
 
 ### Mermaid Diagram Format
 
-When generating sequence diagrams from trace results, use this format:
+When generating sequence diagrams from event trace results, events are **not participants** — they appear as labels on arrows. Use this format:
 
 ```
 sequenceDiagram
-    participant A as service-a
-    participant B as service-b
-    participant E as OrderPlaced
+    participant orders as orders
+    participant Bus as Bus
+    participant beans as beans
+    participant barista as barista
 
-    Note over A,B: Flow: flow-name
-    A->>E: publishes
-    E-->>B: execute: handleOrder (via EventBus)
+    orders->>Bus: publishes [OrderPlaced]
+    Bus-->>beans: listen [OrderPlaced]
+    beans->>Bus: publishes [OrderBeansValidated]
+    Bus-->>barista: listen [OrderPlaced]
+    barista->>Bus: publishes [CoffeeBrewStarted]
 ```
 
-- Use `participant` aliases for readability
-- Add `Note over` to separate flows
+- Participants: publishers first, then broker, then subscribers
+- `->>` for publish (service actively fires an event)
+- `-->>` for listen (async delivery from broker to subscriber)
+- Caused events appear immediately after the subscriber that causes them
+- Add `Note over` to separate flows when tracing features
+
+For feature/flow diagrams:
 - Use `->>` for synchronous service-to-service calls
-- Use `-->>` (dotted) for event-driven interactions
+- Use `-->>` for event-driven interactions
 - Include `execute` handler name and `delivered_by` broker on subscribe arrows when present
 - For one-to-many cardinality, annotate with `loop for each <cardinality_by>`
 
@@ -122,3 +143,4 @@ sequenceDiagram
 - When discussing impact, always mention affected business capabilities
 - Business logic lives in **services** — if you need to understand implementation, use the service's `repository_url`
 - **Never confuse events or message brokers with services** — they carry no business logic
+- **Never draw events as participants** in sequence diagrams — they are labels on arrows between services and brokers

@@ -203,6 +203,16 @@ func (e *documentationEngine) FindEvent(name string) ([]graph.Component, error) 
 				if c.DeliveredBy != nil {
 					add(c.DeliveredBy)
 				}
+				// "caused by" — events published as a result of handling this event
+				for _, pub := range c.Publishes {
+					add(pub.Source)
+					if pub.Target.Kind() == graph.KindEvent {
+						add(pub.Target)
+						if ev, ok := pub.Target.(*graph.Event); ok && ev.MessageBroker() != nil {
+							add(ev.MessageBroker())
+						}
+					}
+				}
 			}
 		}
 	}

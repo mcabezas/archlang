@@ -756,7 +756,21 @@ func (s *MCPServer) handleTraceEvent(_ context.Context, req mcp.CallToolRequest)
 	sb.WriteString("\n")
 	fmt.Fprintf(&sb, "## Subscribers (%d)\n\n", len(subscribers))
 	for _, sub := range subscribers {
-		fmt.Fprintf(&sb, "- **%s** (%s)\n", sub.Name(), string(sub.Kind()))
+		fmt.Fprintf(&sb, "- **%s** (%s)", sub.Name(), string(sub.Kind()))
+		var causedEvents []string
+		for _, col := range sub.Collaborations() {
+			if col.Source.Kind() == graph.KindEvent && col.Source.Name() == name {
+				for _, pub := range col.Publishes {
+					if pub.Target.Kind() == graph.KindEvent {
+						causedEvents = append(causedEvents, pub.Target.Name())
+					}
+				}
+			}
+		}
+		if len(causedEvents) > 0 {
+			fmt.Fprintf(&sb, " → causes: **%s**", strings.Join(causedEvents, "**, **"))
+		}
+		sb.WriteString("\n")
 	}
 	if len(subscribers) == 0 {
 		sb.WriteString("_No subscribers found._\n")

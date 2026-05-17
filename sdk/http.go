@@ -12,12 +12,14 @@ import (
 	"time"
 
 	"github.com/mcabezas/archlang/graph"
+	"github.com/mcabezas/archlang/internal/drawer"
+	"github.com/mcabezas/archlang/internal/drawer/mermaid"
 )
 
 // HTTPServer serves the architecture graph over HTTP.
 type HTTPServer struct {
 	storage Storage
-	drawer  *mermaidDrawer
+	drawer  drawer.Drawer
 	addr    string
 }
 
@@ -25,7 +27,7 @@ type HTTPServer struct {
 func NewHTTPServer(graphs []*graph.Graph, addr string) *HTTPServer {
 	return &HTTPServer{
 		storage: New(graphs),
-		drawer:  &mermaidDrawer{},
+		drawer:  mermaid.New(),
 		addr:    addr,
 	}
 }
@@ -39,7 +41,10 @@ func (s *HTTPServer) Start() error {
 	mux.HandleFunc("/api/components/", s.handleGetComponents)
 	mux.HandleFunc("/api/events/", s.handleGetEvent)
 	mux.HandleFunc("/api/events", s.handleListEvents)
+	mux.HandleFunc("/api/features", s.handleListFeatures)
+	mux.HandleFunc("/api/graph", s.handleGraph)
 	mux.HandleFunc("/diagram", s.handleDiagram)
+	mux.HandleFunc("/alpha", s.handleAlpha)
 
 	srv := &http.Server{
 		Addr:    s.addr,
@@ -104,6 +109,24 @@ func (s *HTTPServer) handleListEvents(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(result)
 }
 
+func (s *HTTPServer) handleListFeatures(w http.ResponseWriter, r *http.Request) {
+	features, err := s.storage.ListFeatures()
+	if err != nil {
+		http.Error(w, "failed to list features", http.StatusInternalServerError)
+		return
+	}
+	type featureJSON struct {
+		Name        string `json:"name"`
+		Description string `json:"description,omitempty"`
+	}
+	var result []featureJSON
+	for _, f := range features {
+		result = append(result, featureJSON{Name: f.Name, Description: f.Description})
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(result)
+}
+
 func (s *HTTPServer) handleGetEvent(w http.ResponseWriter, r *http.Request) {
 	name := strings.TrimPrefix(r.URL.Path, "/api/events/")
 	if name == "" {
@@ -135,7 +158,7 @@ func (s *HTTPServer) handleDiagram(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "feature not found", http.StatusNotFound)
 			return
 		}
-		fmt.Fprint(w, s.drawer.drawFeature(components, feature))
+		fmt.Fprint(w, s.drawer.DrawByFeature(components, feature))
 		return
 	}
 
@@ -145,7 +168,7 @@ func (s *HTTPServer) handleDiagram(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "event not found", http.StatusNotFound)
 			return
 		}
-		fmt.Fprint(w, s.drawer.drawEvent(components, event))
+		fmt.Fprint(w, s.drawer.DrawByEvent(components, event))
 		return
 	}
 
@@ -154,7 +177,7 @@ func (s *HTTPServer) handleDiagram(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "failed to list components", http.StatusInternalServerError)
 		return
 	}
-	fmt.Fprint(w, s.drawer.draw(all))
+	fmt.Fprint(w, s.drawer.Draw(all))
 }
 
 type brokerJSON struct {

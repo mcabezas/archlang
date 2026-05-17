@@ -1,4 +1,4 @@
-package knowledge
+package mermaid
 
 import (
 	"fmt"
@@ -7,10 +7,13 @@ import (
 	"github.com/mcabezas/archlang/graph"
 )
 
-type mermaidDrawer struct{}
+// Drawer renders architecture components as Mermaid diagrams embedded in HTML.
+type Drawer struct{}
 
-func (d *mermaidDrawer) draw(components []graph.Component) string {
-	// Collect edges and track which components participate
+// New returns a new Mermaid Drawer.
+func New() *Drawer { return &Drawer{} }
+
+func (d *Drawer) Draw(components []graph.Component) string {
 	type edgeKey struct{ from, to string }
 	seen := make(map[edgeKey]bool)
 	type edgeInfo struct {
@@ -22,7 +25,6 @@ func (d *mermaidDrawer) draw(components []graph.Component) string {
 	for _, c := range components {
 		for _, collab := range c.Collaborations() {
 			if collab.Target.Kind() == graph.KindEvent {
-				// Publish: service -.->|"📨 publishes EventName"| broker
 				if ev, ok := collab.Target.(*graph.Event); ok && ev.MessageBroker() != nil {
 					mb := ev.MessageBroker()
 					key := edgeKey{c.Name(), mb.Name()}
@@ -35,7 +37,6 @@ func (d *mermaidDrawer) draw(components []graph.Component) string {
 					}
 				}
 			} else if collab.Source.Kind() == graph.KindEvent {
-				// Subscribe: broker -.->|"listen"| service
 				if collab.DeliveredBy != nil {
 					key := edgeKey{collab.DeliveredBy.Name(), collab.Target.Name()}
 					if !seen[key] {
@@ -46,7 +47,6 @@ func (d *mermaidDrawer) draw(components []graph.Component) string {
 					}
 				}
 			} else {
-				// service --> service
 				key := edgeKey{c.Name(), collab.Target.Name()}
 				if !seen[key] {
 					seen[key] = true
@@ -58,7 +58,6 @@ func (d *mermaidDrawer) draw(components []graph.Component) string {
 		}
 	}
 
-	// Filter to only connected components
 	var active []graph.Component
 	for _, c := range components {
 		if connected[c.Name()] {
@@ -68,10 +67,9 @@ func (d *mermaidDrawer) draw(components []graph.Component) string {
 
 	var sb strings.Builder
 	sb.WriteString("graph TB\n")
-
 	orgOrder, orgs := groupByOrg(active)
 	writeSubgraphs(&sb, orgOrder, orgs)
-	writeEventClassDef(&sb, active)
+	writeClassDefs(&sb, active)
 
 	for _, e := range edges {
 		if e.label != "" {
@@ -84,175 +82,7 @@ func (d *mermaidDrawer) draw(components []graph.Component) string {
 	return wrapHTML("Architecture Overview", "", sb.String())
 }
 
-func (d *mermaidDrawer) drawFeature(components []graph.Component, feature string) string {
-	var collabs []graph.Collaboration
-	featureDesc := ""
-	for _, c := range components {
-		for _, collab := range c.Collaborations() {
-			if collab.Feature.Name != feature {
-				continue
-			}
-			collabs = append(collabs, collab)
-			if featureDesc == "" && collab.Feature.Description != "" {
-				featureDesc = collab.Feature.Description
-			}
-		}
-	}
-
-	type flowInfo struct {
-		name        string
-		description string
-	}
-	var flowOrder []flowInfo
-	flowSeen := make(map[string]bool)
-	flowSteps := make(map[string][]string)
-	stepSeen := make(map[string]map[string]bool)
-	stepCollabs := make(map[string]map[string][]graph.Collaboration)
-
-	for _, c := range collabs {
-		flowName := c.Flow.Name
-		stepName := c.Step
-
-		if !flowSeen[flowName] {
-			flowSeen[flowName] = true
-			flowOrder = append(flowOrder, flowInfo{name: flowName, description: c.Flow.Description})
-			stepSeen[flowName] = make(map[string]bool)
-			stepCollabs[flowName] = make(map[string][]graph.Collaboration)
-		}
-		if !stepSeen[flowName][stepName] {
-			stepSeen[flowName][stepName] = true
-			flowSteps[flowName] = append(flowSteps[flowName], stepName)
-		}
-		stepCollabs[flowName][stepName] = append(stepCollabs[flowName][stepName], c)
-	}
-
-	var body strings.Builder
-	fmt.Fprintf(&body, "  <h1>[FEATURE] %s</h1>\n", feature)
-	if featureDesc != "" {
-		fmt.Fprintf(&body, "  <p>%s</p>\n", featureDesc)
-	}
-
-	for _, flow := range flowOrder {
-		if flow.name != "" {
-			fmt.Fprintf(&body, "  <h2>[FLOW] %s</h2>\n", flow.name)
-			if flow.description != "" {
-				fmt.Fprintf(&body, "  <p>%s</p>\n", flow.description)
-			}
-		}
-
-		for _, step := range flowSteps[flow.name] {
-			if step != "" {
-				fmt.Fprintf(&body, "  <h3>[STEP] %s</h3>\n", step)
-			}
-
-			collabsForDiagram := stepCollabs[flow.name][step]
-			componentsInDiagram := collectComponents(collabsForDiagram)
-			orgOrder, orgs := groupByOrg(componentsInDiagram)
-
-			var diagram strings.Builder
-			diagram.WriteString("graph TB\n")
-			writeSubgraphs(&diagram, orgOrder, orgs)
-			writeEventClassDef(&diagram, componentsInDiagram)
-
-			type edgeKey struct{ from, to string }
-			seen := make(map[edgeKey]bool)
-			for _, collab := range collabsForDiagram {
-				if collab.Target.Kind() == graph.KindEvent {
-					// Publish: service -.->|"📨 publishes EventName"| broker
-					if ev, ok := collab.Target.(*graph.Event); ok && ev.MessageBroker() != nil {
-						mb := ev.MessageBroker()
-						key := edgeKey{collab.Source.Name(), mb.Name()}
-						if !seen[key] {
-							seen[key] = true
-							label := "publishes<br>[<span style=\"color:#fde047;font-weight:bold\">" + collab.Target.Name() + "</span>]"
-							fmt.Fprintf(&diagram, "  %s -.->|\"%s\"| %s\n", nodeID(collab.Source.Name()), label, nodeID(mb.Name()))
-						}
-					}
-				} else if collab.Source.Kind() == graph.KindEvent {
-					// Subscribe: broker -.->|"listen"| service
-					if collab.DeliveredBy != nil {
-						key := edgeKey{collab.DeliveredBy.Name(), collab.Target.Name()}
-						if !seen[key] {
-							seen[key] = true
-							fmt.Fprintf(&diagram, "  %s -.->|\"listen<br>[%s]\"| %s\n", nodeID(collab.DeliveredBy.Name()), collab.Source.Name(), nodeID(collab.Target.Name()))
-						}
-					}
-				} else {
-					// service --> service
-					key := edgeKey{collab.Source.Name(), collab.Target.Name()}
-					if !seen[key] {
-						seen[key] = true
-						label := edgeLabel(collab)
-						if label != "" {
-							fmt.Fprintf(&diagram, "  %s -->|\"%s\"| %s\n", nodeID(collab.Source.Name()), label, nodeID(collab.Target.Name()))
-						} else {
-							fmt.Fprintf(&diagram, "  %s --> %s\n", nodeID(collab.Source.Name()), nodeID(collab.Target.Name()))
-						}
-					}
-				}
-			}
-
-			fmt.Fprintf(&body, "  <pre class=\"mermaid\">\n%s  </pre>\n", diagram.String())
-		}
-	}
-
-	return wrapFeatureHTML(body.String())
-}
-
-func (d *mermaidDrawer) drawEvent(components []graph.Component, eventName string) string {
-	type edgeKey struct{ from, to string }
-	seen := make(map[edgeKey]bool)
-	type edgeInfo struct{ from, to, arrow, label string }
-	var edges []edgeInfo
-	connected := make(map[string]bool)
-
-	for _, c := range components {
-		for _, collab := range c.Collaborations() {
-			if collab.Target.Kind() == graph.KindEvent && collab.Target.Name() == eventName {
-				if ev, ok := collab.Target.(*graph.Event); ok && ev.MessageBroker() != nil {
-					mb := ev.MessageBroker()
-					key := edgeKey{c.Name(), mb.Name()}
-					if !seen[key] {
-						seen[key] = true
-						label := "publishes<br>[<span style=\"color:#fde047;font-weight:bold\">" + collab.Target.Name() + "</span>]"
-						edges = append(edges, edgeInfo{c.Name(), mb.Name(), "-.->", label})
-						connected[c.Name()] = true
-						connected[mb.Name()] = true
-					}
-				}
-			}
-			if collab.Source.Kind() == graph.KindEvent && collab.Source.Name() == eventName && collab.DeliveredBy != nil {
-				key := edgeKey{collab.DeliveredBy.Name(), collab.Target.Name()}
-				if !seen[key] {
-					seen[key] = true
-					label := "listen<br>[<span style=\"color:#fde047;font-weight:bold\">" + collab.Source.Name() + "</span>]"
-					edges = append(edges, edgeInfo{collab.DeliveredBy.Name(), collab.Target.Name(), "-.->", label})
-					connected[collab.DeliveredBy.Name()] = true
-					connected[collab.Target.Name()] = true
-				}
-			}
-		}
-	}
-
-	var active []graph.Component
-	for _, c := range components {
-		if connected[c.Name()] {
-			active = append(active, c)
-		}
-	}
-
-	var sb strings.Builder
-	sb.WriteString("graph TB\n")
-	orgOrder, orgs := groupByOrg(active)
-	writeSubgraphs(&sb, orgOrder, orgs)
-	writeEventClassDef(&sb, active)
-
-	for _, e := range edges {
-		fmt.Fprintf(&sb, "  %s %s|\"%s\"| %s\n", nodeID(e.from), e.arrow, e.label, nodeID(e.to))
-	}
-
-	return wrapHTML("Event: "+eventName, "", sb.String())
-}
+// — shared helpers —
 
 func collectComponents(collabs []graph.Collaboration) []graph.Component {
 	seen := make(map[string]bool)
@@ -265,13 +95,11 @@ func collectComponents(collabs []graph.Collaboration) []graph.Component {
 	}
 	for _, c := range collabs {
 		if c.Target.Kind() == graph.KindEvent {
-			// Publish: include source service and broker, skip event node
 			add(c.Source)
 			if ev, ok := c.Target.(*graph.Event); ok && ev.MessageBroker() != nil {
 				add(ev.MessageBroker())
 			}
 		} else if c.Source.Kind() == graph.KindEvent {
-			// Subscribe: include broker and target service, skip event node
 			if c.DeliveredBy != nil {
 				add(c.DeliveredBy)
 			}
@@ -305,20 +133,28 @@ func writeSubgraphs(sb *strings.Builder, orgOrder []graph.Org, orgs map[graph.Or
 			case c.Kind() == graph.KindEvent:
 				fmt.Fprintf(sb, "    %s([\"Event: %s\"])\n", nodeID(c.Name()), c.Name())
 			case c.Kind() == graph.KindMessageBroker:
-				fmt.Fprintf(sb, "    %s[(\"✉️✉️✉️✉️✉️✉️<br>✉️ %s ✉️<br>✉️✉️✉️✉️✉️✉️\")]\n", nodeID(c.Name()), c.Name())
+				fmt.Fprintf(sb, "    %s[(\"✉️ %s 🔀\")]\n", nodeID(c.Name()), c.Name())
 			default:
-				fmt.Fprintf(sb, "    %s[\"%s\"]\n", nodeID(c.Name()), c.Name())
+				label := c.Name()
+				if svc, ok := c.(*graph.Service); ok {
+					switch {
+					case strings.EqualFold(svc.Platform, "lambda"):
+						label = label + "<br>⚡λ"
+					case strings.EqualFold(svc.Platform, "ecs"):
+						label = label + "<br>🐳"
+					case strings.EqualFold(svc.Platform, "eks"):
+						label = label + "<br>☸️"
+					}
+				}
+				fmt.Fprintf(sb, "    %s[\"%s\"]\n", nodeID(c.Name()), label)
 			}
 		}
 		sb.WriteString("  end\n")
 	}
 }
 
-
-func writeEventClassDef(sb *strings.Builder, components []graph.Component) {
-	var eventNodes []string
-	var brokerNodes []string
-	var serviceNodes []string
+func writeClassDefs(sb *strings.Builder, components []graph.Component) {
+	var eventNodes, brokerNodes, serviceNodes []string
 	for _, c := range components {
 		switch c.Kind() {
 		case graph.KindEvent:
@@ -368,17 +204,6 @@ func nodeID(name string) string {
 	return strings.ReplaceAll(name, "-", "_")
 }
 
-func toUpperSnake(s string) string {
-	var result []rune
-	for i, r := range s {
-		if i > 0 && r >= 'A' && r <= 'Z' {
-			result = append(result, '_')
-		}
-		result = append(result, []rune(strings.ToUpper(string(r)))...)
-	}
-	return string(result)
-}
-
 const mermaidInit = `<script src="https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js"></script>
   <script>mermaid.initialize({
     startOnLoad: true,
@@ -397,6 +222,8 @@ const mermaidInit = `<script src="https://cdn.jsdelivr.net/npm/mermaid/dist/merm
       clusterBkg: '#0f172a',
       clusterBorder: '#334155',
       edgeLabelBackground: '#1e293b',
+      activationBkgColor: '#ffffff',
+      activationBorderColor: '#38bdf8',
       fontFamily: '-apple-system, BlinkMacSystemFont, Segoe UI, Roboto, sans-serif',
       fontSize: '14px'
     }
@@ -411,9 +238,58 @@ const darkCSS = `<style>
     h2 + p { color: #94a3b8; font-size: 0.95rem; margin-bottom: 1rem; }
     h3 { font-size: 1.05rem; font-weight: 500; color: #a78bfa; margin-top: 1.5rem; margin-bottom: 0.75rem; padding-left: 0.75rem; border-left: 3px solid #a78bfa; }
     pre.mermaid { background: #1e293b; border-radius: 12px; padding: 1.5rem; margin: 0.5rem 0 1.5rem; border: 1px solid #334155; }
+    .filter-bar { display: flex; align-items: center; gap: 0.75rem; padding: 1rem 0 1.5rem; }
+    .filter-bar label { font-size: 0.85rem; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.05em; }
+    .filter-bar select { background: #1e293b; color: #e2e8f0; border: 1px solid #334155; border-radius: 8px; padding: 0.45rem 0.85rem; font-size: 0.95rem; cursor: pointer; outline: none; }
+    .filter-bar select:focus { border-color: #38bdf8; }
+    .filter-bar select:disabled { opacity: 0.4; cursor: not-allowed; }
   </style>`
 
-func wrapHTML(title string, subtitle string, mermaidCode string) string {
+const filterBarHTML = `
+  <div class="filter-bar">
+    <label>View</label>
+    <select id="filter-type" onchange="onTypeChange()">
+      <option value="">All</option>
+      <option value="feature">Feature</option>
+      <option value="event">Event</option>
+    </select>
+    <select id="filter-value" onchange="onValueChange()" disabled>
+      <option value="">— select —</option>
+    </select>
+  </div>
+  <script>
+    const params = new URLSearchParams(window.location.search);
+    const currentType = params.has('feature') ? 'feature' : params.has('event') ? 'event' : '';
+    const currentValue = params.get('feature') || params.get('event') || '';
+
+    async function onTypeChange() {
+      const type = document.getElementById('filter-type').value;
+      const sel = document.getElementById('filter-value');
+      sel.innerHTML = '<option value="">— select —</option>';
+      if (!type) { sel.disabled = true; window.location.href = '/diagram'; return; }
+      const res = await fetch('/api/' + type + 's');
+      const data = await res.json();
+      data.forEach(item => {
+        const opt = document.createElement('option');
+        opt.value = item.name;
+        opt.textContent = item.name + (item.description ? '  —  ' + item.description : '');
+        if (item.name === currentValue) opt.selected = true;
+        sel.appendChild(opt);
+      });
+      sel.disabled = false;
+    }
+
+    function onValueChange() {
+      const type = document.getElementById('filter-type').value;
+      const value = document.getElementById('filter-value').value;
+      if (value) window.location.href = '/diagram?' + type + '=' + encodeURIComponent(value);
+    }
+
+    document.getElementById('filter-type').value = currentType;
+    if (currentType) onTypeChange();
+  </script>`
+
+func wrapHTML(title, subtitle, mermaidCode string) string {
 	subtitleHTML := ""
 	if subtitle != "" {
 		subtitleHTML = fmt.Sprintf("\n  <p>%s</p>", subtitle)
@@ -428,11 +304,12 @@ func wrapHTML(title string, subtitle string, mermaidCode string) string {
 </head>
 <body>
   <h1>%s</h1>%s
+  %s
   <pre class="mermaid">
 %s
   </pre>
 </body>
-</html>`, title, mermaidInit, darkCSS, title, subtitleHTML, mermaidCode)
+</html>`, title, mermaidInit, darkCSS, title, subtitleHTML, filterBarHTML, mermaidCode)
 }
 
 func wrapFeatureHTML(body string) string {
@@ -445,7 +322,8 @@ func wrapFeatureHTML(body string) string {
   %s
 </head>
 <body>
+  %s
 %s
 </body>
-</html>`, mermaidInit, darkCSS, body)
+</html>`, mermaidInit, darkCSS, filterBarHTML, body)
 }
