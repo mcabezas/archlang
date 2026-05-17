@@ -679,6 +679,10 @@ func (s *MCPServer) handleListEvents(_ context.Context, _ mcp.CallToolRequest) (
 				sb.WriteString(")")
 			}
 		}
+		features := collectEventFeatures(e.Name(), []graph.Component{e})
+		if len(features) > 0 {
+			fmt.Fprintf(&sb, " — features: %s", strings.Join(features, ", "))
+		}
 		sb.WriteString("\n")
 	}
 	if len(events) == 0 {
@@ -720,8 +724,14 @@ func (s *MCPServer) handleTraceEvent(_ context.Context, req mcp.CallToolRequest)
 		}
 	}
 
+	features := collectEventFeatures(name, components)
+
 	var sb strings.Builder
 	fmt.Fprintf(&sb, "# Event: %s\n\n", name)
+
+	if len(features) > 0 {
+		fmt.Fprintf(&sb, "**Related features:** %s\n\n", strings.Join(features, ", "))
+	}
 
 	if broker != nil {
 		fmt.Fprintf(&sb, "**Published at:** %s", broker.Name())
@@ -753,6 +763,25 @@ func (s *MCPServer) handleTraceEvent(_ context.Context, req mcp.CallToolRequest)
 	}
 
 	return mcp.NewToolResultText(sb.String()), nil
+}
+
+func collectEventFeatures(eventName string, components []graph.Component) []string {
+	seen := make(map[string]bool)
+	var features []string
+	for _, c := range components {
+		for _, col := range c.Collaborations() {
+			if col.Feature.Name == "" {
+				continue
+			}
+			if col.Source.Name() == eventName || col.Target.Name() == eventName {
+				if !seen[col.Feature.Name] {
+					seen[col.Feature.Name] = true
+					features = append(features, col.Feature.Name)
+				}
+			}
+		}
+	}
+	return features
 }
 
 // mcpJSON is a helper to return JSON-encoded tool results.
